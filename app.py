@@ -1,14 +1,34 @@
 import streamlit as st
 from anthropic import Anthropic
-import pandas as pd
+import re
+
+def clean_translation(response):
+    """Clean translation output"""
+    # Convert to string
+    text = str(response)
+    
+    # Remove TextBlock formatting
+    text = re.sub(r'\[TextBlock\(text=[\'"](.*?)[\'"].*?\)\]', r'\1', text)
+    
+    # Remove intro phrases
+    text = re.sub(r'^Here is the .* translation.*?:', '', text)
+    text = re.sub(r'^Translating from .* to .*?:', '', text)
+    
+    # Remove quotes and escape characters
+    text = text.replace('\\"', '"').replace("\\'", "'")
+    text = text.replace('\\n', ' ')
+    
+    # Clean up whitespace
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
 
 def translate_text(text, from_lang, to_lang):
-    """Simple translation function"""
+    """Translate text with clean output"""
     try:
         anthropic = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
-        prompt = f"""You are translating this {from_lang} text to {to_lang}.
-        Provide only the translation, no other text:
+        prompt = f"""Translate this {from_lang} text to {to_lang}.
+        Provide only the direct translation with no additional text or formatting:
 
         {text}"""
         
@@ -21,8 +41,8 @@ def translate_text(text, from_lang, to_lang):
             ]
         )
         
-        # Get just the content
-        translation = response.content
+        # Clean the response
+        translation = clean_translation(response.content)
         
         if not translation:
             st.error("No translation received")
@@ -69,9 +89,9 @@ if st.button("Translate", type="primary"):
                     label_visibility="collapsed"
                 )
                 
-                # Debug output
-                with st.expander("Debug info"):
-                    st.write("Input text:", input_text)
+                # Optional debug info
+                if st.checkbox("Show debug info"):
+                    st.write("Input:", input_text)
                     st.write("Raw response:", translation)
     else:
         st.warning("Please enter some text to translate")

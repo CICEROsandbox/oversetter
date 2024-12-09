@@ -1,84 +1,98 @@
 import streamlit as st
 from anthropic import Anthropic
-import re
 
-def clean_response(text):
+def clean_translation(text):
     """Clean the translation response"""
-    text = str(text)
-    text = re.sub(r'\[TextBlock\(text=["\'](.*)["\'].*?\)\]', r'\1', text)
-    text = text.replace("\\'", "'").replace('\\"', '"')
-    text = re.sub(r',\s*type=\'text\'.*', '', text)
-    text = text.replace('\\n', ' ').replace('\n', ' ')
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+    return str(text).strip()
 
-def format_analysis(analysis):
-    """Format the analysis response"""
-    # Remove TextBlock formatting
-    analysis = re.sub(r'\[TextBlock\(text=["\'](.*)["\'].*?\)\]', r'\1', str(analysis))
-    # Remove other artifacts
-    analysis = analysis.replace("\\'", "'").replace('\\"', '"')
-    analysis = re.sub(r',\s*type=\'text\'.*', '', analysis)
+def format_analysis(raw_analysis):
+    """Format analysis into clean markdown sections"""
+    # Remove any TextBlock formatting and special characters
+    text = str(raw_analysis)
+    text = text.replace('\n\n', '\n').replace('\\n', '\n')
+    text = text.replace('\t', ' ').replace('• ', '- ')
     
-    # Split into sections and clean up
-    sections = analysis.split('\n\n')
-    formatted = ""
+    # Remove any remaining special formatting
+    import re
+    text = re.sub(r'\[TextBlock.*?\]', '', text)
+    text = re.sub(r'type=.*?text.*?\}', '', text)
+    text = re.sub(r'\\+[a-z]', ' ', text)
     
-    for section in sections:
-        if ':' in section:
-            title, content = section.split(':', 1)
-            formatted += f"### {title.strip()}\n"
-            # Convert bullet points to proper markdown
-            points = content.split('\n-')
-            for point in points:
-                if point.strip():
-                    formatted += f"- {point.strip()}\n"
-            formatted += "\n"
+    # Create clean markdown sections
+    sections = []
+    sections.append("### Translation Analysis\n")
     
-    return formatted
+    if "Key Terms:" in text:
+        sections.append("**Key Terminology**")
+        terms = text.split("Key Terms:")[1].split("Challenges:")[0]
+        for term in terms.split("•"):
+            if term.strip():
+                sections.append(f"- {term.strip()}")
+    
+    if "Challenges:" in text:
+        sections.append("\n**Translation Challenges**")
+        challenges = text.split("Challenges:")[1].split("Alternatives:")[0]
+        for challenge in challenges.split("•"):
+            if challenge.strip():
+                sections.append(f"- {challenge.strip()}")
+    
+    if "Alternatives:" in text:
+        sections.append("\n**Alternative Options**")
+        alts = text.split("Alternatives:")[1].split("Suggestions:")[0]
+        for alt in alts.split("•"):
+            if alt.strip():
+                sections.append(f"- {alt.strip()}")
+    
+    if "Suggestions:" in text:
+        sections.append("\n**Suggestions for Improvement**")
+        suggestions = text.split("Suggestions:")[1]
+        for suggestion in suggestions.split("•"):
+            if suggestion.strip():
+                sections.append(f"- {suggestion.strip()}")
+    
+    return "\n".join(sections)
 
 def get_translation_and_analysis(text, from_lang, to_lang):
-    """Get both translation and analysis"""
+    """Get translation and analysis"""
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
         # Get translation
-        translation_prompt = f"""Translate this {from_lang} text to {to_lang}. 
-        Provide only the plain translation text without any formatting or metadata:
-
-        {text}"""
-        
         translation_response = client.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
-            messages=[{"role": "user", "content": translation_prompt}]
+            messages=[{
+                "role": "user",
+                "content": f"Translate this from {from_lang} to {to_lang}. Provide only the translation:\n\n{text}"
+            }]
         )
         
-        translation = clean_response(translation_response.content)
+        translation = clean_translation(translation_response.content)
         
         # Get analysis
-        analysis_prompt = f"""Analyze this translation:
-
-        Original: {text}
-        Translation: {translation}
-
-        Provide brief analysis in these categories:
-        • Key Terms: Important terminology choices and climate science vocabulary
-        • Challenges: Any tricky parts of the translation
-        • Alternatives: Other possible ways to translate key terms
-        • Suggestions: Ideas for improving the translation
-
-        Keep each bullet point brief and focused."""
-        
         analysis_response = client.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
-            messages=[{"role": "user", "content": analysis_prompt}]
+            messages=[{
+                "role": "user",
+                "content": f"""Analyze this translation:
+                Original: {text}
+                Translation: {translation}
+                
+                Provide brief analysis in these categories:
+                • Key Terms: Important terminology and vocabulary choices
+                • Challenges: Any difficult aspects of the translation
+                • Alternatives: Other possible translations for key terms
+                • Suggestions: Brief ideas for improvement
+
+                Keep each point concise."""
+            }]
         )
         
-        return translation, format_analysis(analysis_response.content)
+        analysis = format_analysis(analysis_response.content)
+        return translation, analysis
         
     except Exception as e:
         st.error(f"Error: {str(e)}")

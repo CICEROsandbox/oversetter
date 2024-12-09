@@ -9,13 +9,22 @@ st.set_page_config(
     layout="centered"
 )
 
-def extract_translation(response):
-    """Extract clean translation from response"""
+def clean_translation(response):
+    """Clean translation text"""
     # Extract text between TextBlock(text='...')
     match = re.search(r"TextBlock\(text='([^']+)'", str(response))
     if match:
-        return match.group(1)
-    return str(response)  # Fallback to full response if pattern not found
+        text = match.group(1)
+    else:
+        text = str(response)
+    
+    # Replace \n\n with single space
+    text = re.sub(r'\n\n+', ' ', text)
+    # Replace single \n with space
+    text = re.sub(r'\n', ' ', text)
+    # Clean up any multiple spaces
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
 
 def translate_text(text, from_lang, to_lang):
     """Translate text using Claude API"""
@@ -26,7 +35,7 @@ def translate_text(text, from_lang, to_lang):
 
         {text}
 
-        Provide only the direct translation."""
+        Provide only the direct translation without any line breaks."""
         
         response = anthropic.messages.create(
             model="claude-3-opus-20240229",
@@ -37,9 +46,7 @@ def translate_text(text, from_lang, to_lang):
             ]
         )
         
-        # Clean the response
-        translation = extract_translation(response.content)
-        return translation
+        return clean_translation(response.content)
         
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
@@ -63,7 +70,8 @@ to_lang = "Norwegian" if direction.startswith("English") else "English"
 st.subheader(f"{from_lang} Text")
 input_text = st.text_area(
     "Enter text to translate:",
-    height=150
+    height=150,
+    label_visibility="collapsed"  # Fixes the empty label warning
 )
 
 # Translation button
@@ -74,9 +82,10 @@ if st.button("Translate", type="primary"):
             if translation:
                 st.subheader(f"{to_lang} Translation")
                 st.text_area(
-                    "",
+                    "Translated text",  # Added label
                     value=translation,
-                    height=150
+                    height=150,
+                    label_visibility="collapsed"  # Hide label but maintain accessibility
                 )
     else:
         st.warning("Please enter some text to translate")

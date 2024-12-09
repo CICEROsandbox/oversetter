@@ -4,12 +4,20 @@ import re
 
 def clean_response(text):
     """Clean the translation response"""
-    # Remove TextBlock wrapper
-    text = re.sub(r'\[TextBlock\(text=["\'](.*)["\'].*?\)\]', r'\1', str(text))
-    # Remove other formatting
+    # Convert to string and remove outer formatting
+    text = str(text)
+    text = re.sub(r'\[TextBlock\(text=["\'](.*)["\'].*?\)\]', r'\1', text)
+    
+    # Remove escaped quotes
+    text = text.replace("\\'", "'").replace('\\"', '"')
+    
+    # Remove type='text and other artifacts
+    text = re.sub(r',\s*type=\'text\'.*', '', text)
+    
+    # Clean up newlines and spaces
     text = text.replace('\\n', ' ').replace('\n', ' ')
-    # Clean up whitespace
     text = re.sub(r'\s+', ' ', text)
+    
     return text.strip()
 
 st.title("Climate Science Translator 🌍")
@@ -41,7 +49,7 @@ if st.button("Translate", type="primary", key='translate_button'):
                 client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
                 
                 prompt = f"""Translate this {from_lang} text to {to_lang}. 
-                Provide only the direct translation, no additional text:
+                Provide only the plain translation text without any formatting or metadata:
 
                 {input_text}"""
                 

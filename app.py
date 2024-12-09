@@ -12,12 +12,37 @@ def clean_response(text):
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
+def format_analysis(analysis):
+    """Format the analysis response"""
+    # Remove TextBlock formatting
+    analysis = re.sub(r'\[TextBlock\(text=["\'](.*)["\'].*?\)\]', r'\1', str(analysis))
+    # Remove other artifacts
+    analysis = analysis.replace("\\'", "'").replace('\\"', '"')
+    analysis = re.sub(r',\s*type=\'text\'.*', '', analysis)
+    
+    # Split into sections and clean up
+    sections = analysis.split('\n\n')
+    formatted = ""
+    
+    for section in sections:
+        if ':' in section:
+            title, content = section.split(':', 1)
+            formatted += f"### {title.strip()}\n"
+            # Convert bullet points to proper markdown
+            points = content.split('\n-')
+            for point in points:
+                if point.strip():
+                    formatted += f"- {point.strip()}\n"
+            formatted += "\n"
+    
+    return formatted
+
 def get_translation_and_analysis(text, from_lang, to_lang):
     """Get both translation and analysis"""
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
-        # First get the translation
+        # Get translation
         translation_prompt = f"""Translate this {from_lang} text to {to_lang}. 
         Provide only the plain translation text without any formatting or metadata:
 
@@ -32,20 +57,19 @@ def get_translation_and_analysis(text, from_lang, to_lang):
         
         translation = clean_response(translation_response.content)
         
-        # Then get the analysis
-        analysis_prompt = f"""Analyze this translation from {from_lang} to {to_lang}:
+        # Get analysis
+        analysis_prompt = f"""Analyze this translation:
 
         Original: {text}
         Translation: {translation}
 
-        Provide brief insights about:
-        1. Key terminology choices
-        2. Cultural considerations
-        3. Climate science specific considerations
-        4. Potential alternative translations for key terms
-        5. Suggestions for improvement
+        Provide brief analysis in these categories:
+        • Key Terms: Important terminology choices and climate science vocabulary
+        • Challenges: Any tricky parts of the translation
+        • Alternatives: Other possible ways to translate key terms
+        • Suggestions: Ideas for improving the translation
 
-        Format your response in clear bullet points."""
+        Keep each bullet point brief and focused."""
         
         analysis_response = client.messages.create(
             model="claude-3-opus-20240229",
@@ -54,7 +78,7 @@ def get_translation_and_analysis(text, from_lang, to_lang):
             messages=[{"role": "user", "content": analysis_prompt}]
         )
         
-        return translation, analysis_response.content
+        return translation, format_analysis(analysis_response.content)
         
     except Exception as e:
         st.error(f"Error: {str(e)}")
@@ -98,8 +122,8 @@ if st.button("Translate", type="primary", key='translate_button'):
                     label_visibility="collapsed"
                 )
                 
-                # Show analysis in expander
-                with st.expander("See translation analysis and suggestions"):
+                # Show analysis in expander with markdown formatting
+                with st.expander("Translation Analysis"):
                     st.markdown(analysis)
     else:
         st.warning("Please enter text to translate")

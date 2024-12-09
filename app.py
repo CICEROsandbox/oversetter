@@ -3,12 +3,20 @@ from anthropic import Anthropic
 import pandas as pd
 import re
 
+def load_ipcc_examples():
+    """Load and prepare IPCC parallel text"""
+    try:
+        df = pd.read_csv('data/ipcc_parallel_text.csv')
+        # Get relevant examples (e.g., first few rows or most relevant)
+        examples = df[['english', 'norwegian']].head(3).to_dict('records')
+        return examples
+    except Exception as e:
+        st.warning("Note: IPCC reference text not loaded. Translations will continue without examples.")
+        return []
+
 def clean_response(response):
     """Aggressively clean Claude's response"""
-    # Convert to string
     text = str(response)
-    
-    # Remove all common prefixes/formatting
     patterns_to_remove = [
         r'\[TextBlock\(text=\'.*?\'.*?\)\]',
         r'Here is the .* translation.*?:',
@@ -20,24 +28,34 @@ def clean_response(response):
     
     for pattern in patterns_to_remove:
         text = re.sub(pattern, '', text)
-    
-    # Clean up quotes and spaces
     text = text.replace("\'", "'").strip()
-    # Remove multiple spaces
     text = re.sub(r'\s+', ' ', text)
     return text
 
 def translate_text(text, from_lang, to_lang):
-    """Translate text using Claude API"""
+    """Translate text using Claude API with IPCC examples"""
     try:
-        anthropic = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        # Load IPCC examples
+        ipcc_examples = load_ipcc_examples()
         
-        prompt = f"""Translate this text from {from_lang} to {to_lang}. 
-        Provide ONLY the translation with no additional text, no explanations, and no formatting:
+        # Create example context
+        example_text = ""
+        if ipcc_examples:
+            example_text = "Use these IPCC translation examples as reference:\n"
+            for ex in ipcc_examples:
+                example_text += f"\nEnglish: {ex['english']}\nNorwegian: {ex['norwegian']}\n"
+
+        # Create prompt with examples
+        prompt = f"""You are a climate science translator. {example_text}
+
+        Translate this text from {from_lang} to {to_lang}, 
+        using IPCC terminology and style when applicable.
+        Provide ONLY the translation with no additional text or formatting:
 
         {text}
         """
         
+        anthropic = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         message = anthropic.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
@@ -55,6 +73,14 @@ def translate_text(text, from_lang, to_lang):
 
 # UI Components
 st.title("Climate Science Translator 🌍")
+
+# Show status of IPCC reference data
+if st.checkbox("Show IPCC reference status", value=False):
+    try:
+        df = pd.read_csv('data/ipcc_parallel_text (1).csv')
+        st.success(f"✓ Using IPCC reference text ({len(df)} examples loaded)")
+    except:
+        st.error("✗ IPCC reference text not found")
 
 # Translation direction
 direction = st.radio(

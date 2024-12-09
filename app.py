@@ -4,27 +4,25 @@ import pandas as pd
 import requests
 import re
 
+@st.cache_data
 def load_ipcc_examples():
-    """Load IPCC parallel text from local file or GitHub"""
-    # Try local file first
+    """Load and cache IPCC parallel text"""
     try:
         df = pd.read_csv('data/ipcc_parallel_text.csv')
         st.success("✓ Using local IPCC reference text")
         return df[['english', 'norwegian']].head(3).to_dict('records')
     except Exception:
-        # If local file fails, try GitHub
-        try:
-            url = "https://raw.githubusercontent.com/CICEROsandbox/oversetter/refs/heads/main/data/ipcc_parallel_text.csv"
-            df = pd.read_csv(url)
-            st.success("✓ Using IPCC reference text from GitHub")
-            return df[['english', 'norwegian']].head(3).to_dict('records')
-        except Exception as e:
-            st.error("✗ Could not load IPCC reference text")
-            return []
+        st.error("✗ Could not load IPCC reference text")
+        return []
 
 def clean_response(response):
-    """Clean Claude's response"""
+    """Clean and validate Claude's response"""
+    if not response:
+        return None
+        
     text = str(response)
+    
+    # Remove formatting
     patterns_to_remove = [
         r'\[TextBlock\(text=\'.*?\'.*?\)\]',
         r'Here is the .* translation.*?:',
@@ -36,34 +34,49 @@ def clean_response(response):
     
     for pattern in patterns_to_remove:
         text = re.sub(pattern, '', text)
-    text = text.replace("\'", "'").strip()
+    
+    # Clean up text
+    text = text.replace("\'", "'")
+    text = text.replace('\\n', ' ')
     text = re.sub(r'\s+', ' ', text)
+    text = text.strip()
+    
+    # Validate we have actual content
+    if len(text) < 1:
+        return None
+        
     return text
 
 def translate_text(text, from_lang, to_lang):
-    """Translate text using Claude API with IPCC examples"""
+    """Translate text using Claude API with validation"""
+    if not text or len(text.strip()) < 1:
+        st.error("No text provided for translation")
+        return None
+        
     try:
         # Load IPCC examples
         ipcc_examples = load_ipcc_examples()
         
-        # Create example context
-        example_text = ""
-        if ipcc_examples:
-            example_text = "Use these IPCC translation examples as reference:\n"
-            for ex in ipcc_examples:
-                example_text += f"\nEnglish: {ex['english']}\nNorwegian: {ex['norwegian']}\n"
-
-        prompt = f"""You are a climate science translator. {example_text}
-
-        Translate this text from {from_lang} to {to_lang}, 
-        using IPCC terminology and style when applicable.
-        Provide ONLY the translation with no additional text or formatting:
+        # Create prompt
+        prompt = f"""Translate this text from {from_lang} to {to_lang}:
 
         {text}
+
+        Guidelines:
+        1. Provide ONLY the direct translation
+        2. No explanations or metadata
+        3. Maintain scientific accuracy
+        4. Use climate science terminology correctly
         """
         
+        if ipcc_examples:
+            prompt += "\n\nReference examples:\n"
+            for ex in ipcc_examples:
+                prompt += f"\n{from_lang}: {ex[from_lang.lower()]}\n{to_lang}: {ex[to_lang.lower()]}\n"
+        
+        # Get translation
         anthropic = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-        message = anthropic.messages.create(
+        response = anthropic.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
@@ -72,7 +85,14 @@ def translate_text(text, from_lang, to_lang):
             ]
         )
         
-        return clean_response(message.content)
+        # Clean and validate response
+        translation = clean_response(response.content)
+        
+        if not translation:
+            st.error("Got empty translation response")
+            return None
+            
+        return translation
         
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
@@ -112,6 +132,12 @@ if st.button("Translate", type="primary"):
                     height=150,
                     label_visibility="collapsed"
                 )
+                
+                # Debug info
+                if st.checkbox("Show debug info"):
+                    st.write("Input length:", len(input_text))
+                    st.write("Output length:", len(translation))
+                    st.write("Translation successful")
     else:
         st.warning("Please enter some text to translate")
 

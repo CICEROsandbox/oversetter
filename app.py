@@ -4,21 +4,61 @@ import re
 
 def clean_response(text):
     """Clean the translation response"""
-    # Convert to string and remove outer formatting
     text = str(text)
     text = re.sub(r'\[TextBlock\(text=["\'](.*)["\'].*?\)\]', r'\1', text)
-    
-    # Remove escaped quotes
     text = text.replace("\\'", "'").replace('\\"', '"')
-    
-    # Remove type='text and other artifacts
     text = re.sub(r',\s*type=\'text\'.*', '', text)
-    
-    # Clean up newlines and spaces
     text = text.replace('\\n', ' ').replace('\n', ' ')
     text = re.sub(r'\s+', ' ', text)
-    
     return text.strip()
+
+def get_translation_and_analysis(text, from_lang, to_lang):
+    """Get both translation and analysis"""
+    try:
+        client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        
+        # First get the translation
+        translation_prompt = f"""Translate this {from_lang} text to {to_lang}. 
+        Provide only the plain translation text without any formatting or metadata:
+
+        {text}"""
+        
+        translation_response = client.messages.create(
+            model="claude-3-opus-20240229",
+            max_tokens=1000,
+            temperature=0,
+            messages=[{"role": "user", "content": translation_prompt}]
+        )
+        
+        translation = clean_response(translation_response.content)
+        
+        # Then get the analysis
+        analysis_prompt = f"""Analyze this translation from {from_lang} to {to_lang}:
+
+        Original: {text}
+        Translation: {translation}
+
+        Provide brief insights about:
+        1. Key terminology choices
+        2. Cultural considerations
+        3. Climate science specific considerations
+        4. Potential alternative translations for key terms
+        5. Suggestions for improvement
+
+        Format your response in clear bullet points."""
+        
+        analysis_response = client.messages.create(
+            model="claude-3-opus-20240229",
+            max_tokens=1000,
+            temperature=0,
+            messages=[{"role": "user", "content": analysis_prompt}]
+        )
+        
+        return translation, analysis_response.content
+        
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
+        return None, None
 
 st.title("Climate Science Translator 🌍")
 
@@ -45,36 +85,22 @@ input_text = st.text_area(
 if st.button("Translate", type="primary", key='translate_button'):
     if input_text:
         with st.spinner("Translating..."):
-            try:
-                client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-                
-                prompt = f"""Translate this {from_lang} text to {to_lang}. 
-                Provide only the plain translation text without any formatting or metadata:
-
-                {input_text}"""
-                
-                response = client.messages.create(
-                    model="claude-3-opus-20240229",
-                    max_tokens=1000,
-                    temperature=0,
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ]
+            translation, analysis = get_translation_and_analysis(input_text, from_lang, to_lang)
+            
+            if translation:
+                # Show translation
+                st.subheader(f"{to_lang} Translation")
+                st.text_area(
+                    "",
+                    value=translation,
+                    height=150,
+                    key='output',
+                    label_visibility="collapsed"
                 )
                 
-                if response and response.content:
-                    # Clean the response before displaying
-                    clean_translation = clean_response(response.content)
-                    st.text_area(
-                        f"{to_lang} Translation:",
-                        value=clean_translation,
-                        height=150,
-                        key='output'
-                    )
-                else:
-                    st.error("No translation received")
-            except Exception as e:
-                st.error(f"Translation error: {str(e)}")
+                # Show analysis in expander
+                with st.expander("See translation analysis and suggestions"):
+                    st.markdown(analysis)
     else:
         st.warning("Please enter text to translate")
 

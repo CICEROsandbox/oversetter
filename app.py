@@ -1,6 +1,5 @@
 import streamlit as st
 from anthropic import Anthropic
-import re
 
 # Page configuration
 st.set_page_config(
@@ -9,34 +8,18 @@ st.set_page_config(
     layout="centered"
 )
 
-def clean_translation(response):
-    """Clean up the translation response"""
-    try:
-        # Remove the formatting prefix
-        cleaned = re.sub(r'.*?terminology:\s*\n*', '', str(response))
-        # Remove any remaining [TextBlock...] formatting
-        cleaned = re.sub(r'\[TextBlock\(.*?\)\]', '', cleaned)
-        # Clean up extra whitespace
-        cleaned = re.sub(r'\s+', ' ', cleaned)
-        return cleaned.strip()
-    except:
-        return response
-
 def translate_text(text, from_lang, to_lang):
     """Translate text using Claude API"""
-    if not text:
-        return None
-        
     try:
         anthropic = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
-        prompt = f"""Translate this {from_lang} text to {to_lang}. 
-        Provide ONLY the translation, with no additional text or context:
+        prompt = f"""Translate this text from {from_lang} to {to_lang}:
 
         {text}
-        """
+
+        Provide only the translation with no additional text or explanations."""
         
-        message = anthropic.messages.create(
+        response = anthropic.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
@@ -44,9 +27,17 @@ def translate_text(text, from_lang, to_lang):
                 {"role": "user", "content": prompt}
             ]
         )
-        return clean_translation(message.content)
+        
+        # Get the translation from the response
+        translation = response.content
+        
+        # For debugging
+        st.write("Debug - Raw response:", translation)
+        
+        return translation
+        
     except Exception as e:
-        st.error("Translation error. Please try again.")
+        st.error(f"Translation error: {str(e)}")
         return None
 
 # Main UI

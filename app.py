@@ -1,5 +1,6 @@
 import streamlit as st
 from anthropic import Anthropic
+import re
 
 # Page configuration
 st.set_page_config(
@@ -7,6 +8,19 @@ st.set_page_config(
     page_icon="🌍",
     layout="centered"
 )
+
+def clean_translation(response):
+    """Clean up the translation response"""
+    try:
+        # Remove the formatting prefix
+        cleaned = re.sub(r'.*?terminology:\s*\n*', '', str(response))
+        # Remove any remaining [TextBlock...] formatting
+        cleaned = re.sub(r'\[TextBlock\(.*?\)\]', '', cleaned)
+        # Clean up extra whitespace
+        cleaned = re.sub(r'\s+', ' ', cleaned)
+        return cleaned.strip()
+    except:
+        return response
 
 def translate_text(text, from_lang, to_lang):
     """Translate text using Claude API"""
@@ -16,8 +30,8 @@ def translate_text(text, from_lang, to_lang):
     try:
         anthropic = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
-        prompt = f"""Translate the following {from_lang} climate science text to {to_lang}. 
-        Maintain scientific accuracy and use appropriate climate science terminology:
+        prompt = f"""Translate this {from_lang} text to {to_lang}. 
+        Provide ONLY the translation, with no additional text or context:
 
         {text}
         """
@@ -30,7 +44,7 @@ def translate_text(text, from_lang, to_lang):
                 {"role": "user", "content": prompt}
             ]
         )
-        return str(message.content)
+        return clean_translation(message.content)
     except Exception as e:
         st.error("Translation error. Please try again.")
         return None

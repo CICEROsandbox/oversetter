@@ -10,21 +10,45 @@ def clean_text(text):
     # Remove any "Here is the translation..." prefix
     text = re.sub(r'^.*?(?=In the|I f)', '', text, flags=re.DOTALL)
     
-    # Remove [TextBlock] artifacts
+    # Remove [TextBlock] artifacts and type=text tags
     text = re.sub(r'\[TextBlock\(text=[\'"](.*)[\'"].*?\)\]', r'\1', text)
+    text = re.sub(r', type=text\]', '', text)
     
-    # Remove quotes and backslashes
-    text = re.sub(r'[\'"\\]', '', text)
+    # Remove LaTeX-style formatting
+    text = re.sub(r'\$.*?\$', '', text)
+    text = re.sub(r'\\[a-zA-Z]+', '', text)
     
-    # Replace 'nn' between sentences with proper spacing
-    text = re.sub(r'(?<!\.)\s*\.\s*n+\s*(?=[A-Z])', '. ', text)
+    # Fix ".n" artifacts
+    text = re.sub(r'\.\s*n\s*(?=[A-Z-])', '. ', text)
+    text = re.sub(r'\s*\.n\d+\s*', '. ', text)
     
     # Clean up extra spaces and periods
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'\.+', '.', text)
-    text = text.strip()
     
-    return text
+    return text.strip()
+
+def display_analysis(analysis):
+    """Format and display analysis in sections"""
+    sections = [
+        "Key Terminology:",
+        "Translation Challenges:",
+        "Suggested Improvements:",
+        "Additional Notes:"
+    ]
+    
+    # Split analysis into paragraphs
+    paragraphs = [p.strip() for p in analysis.split('.') if p.strip()]
+    
+    # Display each paragraph with proper formatting
+    for p in paragraphs:
+        p = p.strip()
+        if any(section in p for section in sections):
+            st.write("---")
+            st.write(f"**{p}**")
+        else:
+            st.write(p + ".")
+            st.write("")
 
 def get_translation_and_analysis(input_text, from_lang, to_lang):
     """Get translation and analysis"""
@@ -62,13 +86,25 @@ def get_translation_and_analysis(input_text, from_lang, to_lang):
                 Original: {input_text}
                 Translation: {translation}
 
-                Analyze the translation focusing on:
-                1. Key terminology choices and possible alternatives
-                2. Any challenging phrases or cultural concepts
-                3. Specific suggestions for improvements
-                4. Number formatting and consistency
+                Please provide a clear analysis with these sections:
 
-                Keep the analysis concise but informative."""
+                Key Terminology:
+                • Point out important term translations
+                • Note any terms that could be translated differently
+                
+                Translation Challenges:
+                • Identify specific challenges in the text
+                • Note any cultural or contextual considerations
+                
+                Suggested Improvements:
+                • Offer specific suggestions for clearer translation
+                • Note any structural improvements
+                
+                Additional Notes:
+                • Comment on number formatting
+                • Any other relevant observations
+
+                Write in clear sentences without bullet points or special formatting."""
             }]
         )
         
@@ -122,13 +158,9 @@ def main():
                         key="output_area"
                     )
                     
-                    # Show analysis directly without text area
+                    # Show analysis with better formatting
                     st.subheader("Translation Analysis")
-                    # Split analysis into paragraphs and display with proper spacing
-                    for paragraph in analysis.split('\n'):
-                        if paragraph.strip():
-                            st.write(paragraph.strip())
-                            st.write("")  # Add space between paragraphs
+                    display_analysis(analysis)
         else:
             st.warning("Please enter text to translate")
 

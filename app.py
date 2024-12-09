@@ -1,57 +1,12 @@
 import streamlit as st
 from anthropic import Anthropic
-import re
 
 def clean_output(text):
     """Clean any formatted text output"""
-    # Remove TextBlock and type='text' formatting
-    text = re.sub(r'\[TextBlock\(text=[\'"]?(.*?)[\'"]?,\s*type=\'text\'\)\]', r'\1', str(text))
-    # Remove escaped characters and extra whitespace
-    text = text.replace('\\n', ' ').replace('\n\n', '\n')
-    text = text.replace('\t', ' ')
-    text = re.sub(r'\s+', ' ', text)
-    # Remove any remaining formatting artifacts
-    text = re.sub(r',\s*type=\'text\'\)?$', '', text)
-    return text.strip()
-
-def format_analysis(analysis):
-    """Format analysis into clean sections"""
-    sections = {
-        "Key Terminology": [],
-        "Translation Challenges": [],
-        "Alternative Options": [],
-        "Suggestions for Improvement": []
-    }
-    
-    # Clean and parse the content
-    content = clean_output(analysis)
-    
-    # Extract points for each section
-    for section in content.split('\n'):
-        section = section.strip()
-        if section:
-            if "Fattige land" in section or "developing countries" in section:
-                sections["Key Terminology"].append(section)
-            elif "challenge" in section.lower() or "difficult" in section.lower():
-                sections["Translation Challenges"].append(section)
-            elif "could also be" in section or "alternative" in section.lower():
-                sections["Alternative Options"].append(section)
-            elif "suggest" in section.lower() or "consider" in section.lower():
-                sections["Suggestions for Improvement"].append(section)
-    
-    # Format into markdown
-    formatted = "## Translation Analysis\n\n"
-    for title, points in sections.items():
-        if points:
-            formatted += f"### {title}\n"
-            for point in points:
-                formatted += f"- {point}\n"
-            formatted += "\n"
-    
-    return formatted
+    return str(text).strip()
 
 def get_translation_and_analysis(text, from_lang, to_lang):
-    """Get translation and analysis"""
+    """Get translation and structured analysis"""
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
@@ -61,10 +16,9 @@ def get_translation_and_analysis(text, from_lang, to_lang):
             max_tokens=1000,
             temperature=0,
             messages=[
-                {"role": "user", "content": f"Translate this from {from_lang} to {to_lang}. Provide only the translation with no additional text:\n\n{text}"}
+                {"role": "user", "content": f"Translate this from {from_lang} to {to_lang}. Provide only the translation:\n\n{text}"}
             ]
         )
-        translation = clean_output(translation_response.content)
         
         # Get analysis
         analysis_response = client.messages.create(
@@ -72,22 +26,22 @@ def get_translation_and_analysis(text, from_lang, to_lang):
             max_tokens=1000,
             temperature=0,
             messages=[
-                {"role": "user", "content": f"""Analyze this translation:
-                Original: {text}
-                Translation: {translation}
-                
-                Provide brief analysis in these sections:
-                • Key Terminology: Important term translations
-                • Translation Challenges: Difficult aspects
-                • Alternative Options: Other possible translations
-                • Suggestions for Improvement: Brief improvement ideas
+                {"role": "user", "content": f"""Analyze this translation pair and provide brief bullet points about:
 
-                Keep each point concise and focus on terminology and clarity."""}
+                Original: {text}
+                Translation: {translation_response.content}
+                
+                Organize your analysis into these sections:
+                1. Key Terms: Important terminology translations (2-3 key terms)
+                2. Challenges: Main translation difficulties (1-2 points)
+                3. Alternative Options: Other possible translations (1-2 suggestions)
+                4. Brief Improvement Notes (if any)
+
+                Keep each bullet point short and focused."""}
             ]
         )
-        analysis = format_analysis(analysis_response.content)
         
-        return translation, analysis
+        return clean_output(translation_response.content), clean_output(analysis_response.content)
         
     except Exception as e:
         st.error(f"Error: {str(e)}")
@@ -95,44 +49,42 @@ def get_translation_and_analysis(text, from_lang, to_lang):
 
 st.title("Climate Science Translator 🌍")
 
-# Set default to Norwegian->English
-if 'direction' not in st.session_state:
-    st.session_state.direction = "Norwegian → English"
-
+# Default to Norwegian->English
 direction = st.radio(
     "Select translation direction:",
     ["Norwegian → English", "English → Norwegian"],
     horizontal=True,
-    key='direction'
+    index=0  # This makes Norwegian->English the default
 )
 
 from_lang = "Norwegian" if direction.startswith("Norwegian") else "English"
 to_lang = "English" if direction.startswith("Norwegian") else "Norwegian"
 
+st.subheader(f"{from_lang} Text")
 input_text = st.text_area(
-    f"Enter {from_lang} text:",
+    "",
     height=150,
-    key='input',
     label_visibility="collapsed"
 )
 
-if st.button("Translate", type="primary", key='translate_button'):
+if st.button("Translate", type="primary"):
     if input_text:
         with st.spinner("Translating..."):
             translation, analysis = get_translation_and_analysis(input_text, from_lang, to_lang)
             
             if translation:
+                # Show translation
                 st.subheader(f"{to_lang} Translation")
                 st.text_area(
                     "",
                     value=translation,
                     height=150,
-                    key='output',
                     label_visibility="collapsed"
                 )
                 
-                with st.expander("View Translation Analysis"):
-                    st.markdown(analysis)
+                # Show analysis directly
+                st.subheader("Translation Analysis")
+                st.write(analysis)
     else:
         st.warning("Please enter text to translate")
 

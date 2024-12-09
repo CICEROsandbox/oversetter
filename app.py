@@ -84,4 +84,64 @@ def get_translation_and_analysis(input_text, from_lang, to_lang):
         st.error(f"Error: {str(e)}")
         return None, None
 
-# [Rest of the Streamlit UI code remains the same]
+def main():
+    st.set_page_config(page_title="Climate Science Translator", layout="wide")
+
+    st.title("Climate Science Translator 🌍")
+
+    # Translation direction
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        direction = st.radio(
+            "Select translation direction:",
+            ["Norwegian → English", "English → Norwegian"],
+            horizontal=True,
+            index=0
+        )
+
+    from_lang = "Norwegian" if direction.startswith("Norwegian") else "English"
+    to_lang = "English" if direction.startswith("Norwegian") else "Norwegian"
+
+    # Input text area
+    st.subheader(f"{from_lang} Text")
+    input_text = st.text_area(
+        label="Input text",
+        height=150,
+        label_visibility="collapsed",
+        key="input_area",
+        placeholder=f"Enter {from_lang} text here..."
+    )
+
+    # Translation
+    if st.button("Translate", type="primary"):
+        if input_text:
+            with st.spinner("Translating..."):
+                translation, analysis = get_translation_and_analysis(input_text, from_lang, to_lang)
+                
+                if translation:
+                    # Show translation
+                    st.subheader(f"{to_lang} Translation")
+                    st.text_area(
+                        label="Translation output",
+                        value=translation,
+                        height=150,
+                        label_visibility="collapsed",
+                        key="output_area"
+                    )
+                    
+                    # Show analysis in an expander
+                    with st.expander("Translation Analysis", expanded=True):
+                        st.text_area(
+                            label="Translation analysis",
+                            value=analysis,
+                            height=200,
+                            label_visibility="collapsed",
+                            key="analysis_area"
+                        )
+        else:
+            st.warning("Please enter text to translate")
+
+    st.caption("Created by CICERO • Powered by Claude API")
+
+if __name__ == "__main__":
+    main()

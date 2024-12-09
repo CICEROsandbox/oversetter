@@ -3,30 +3,41 @@ from anthropic import Anthropic
 import re
 
 def clean_text(text) -> str:
-    """Clean text while preserving HTML tags"""
+    """Clean text with improved newline handling"""
     if isinstance(text, list):
         text = ' '.join(str(item) for item in text)
     elif not isinstance(text, str):
         text = str(text)
     
-    # Remove TextBlock artifacts but preserve HTML tags
+    # Remove TextBlock artifacts
     text = re.sub(r'TextBlock\(text=[\'"](.*?)[\'"]\)', r'\1', text)
+    
+    # Clean up \n\n and other newline artifacts
+    text = re.sub(r'\\n\\n|\\n|\n\n|\n', ' ', text)
+    
+    # Clean up multiple spaces
     text = re.sub(r'\s+', ' ', text)
+    
+    # Add proper paragraph breaks
+    text = re.sub(r'\. ([A-Z])', '.\n\n\\1', text)
+    
     return text.strip()
 
 def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
-    """Get translation and analysis with HTML awareness"""
+    """Get translation and analysis with improved formatting"""
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
-        # Get translation with HTML preservation if needed
-        translation_prompt = f"""Translate this from {from_lang} to {to_lang}."""
-        if preserve_html:
-            translation_prompt += """ Preserve all HTML tags exactly as they appear. Only translate the text content between tags.
-            For example:
-            <p>Dette er en <strong>viktig</strong> tekst</p>
-            Should become:
-            <p>This is an <strong>important</strong> text</p>"""
+        # Get translation
+        translation_prompt = f"""Translate this from {from_lang} to {to_lang}. 
+        Important:
+        - Keep paragraph breaks as single line breaks
+        - Maintain proper sentence spacing
+        - Do not add extra spaces or newlines
+        - Provide only the translation with no additional text
+        
+        Text to translate:
+        {input_text}"""
             
         translation_response = client.messages.create(
             model="claude-3-opus-20240229",
@@ -34,7 +45,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
             temperature=0,
             messages=[{
                 "role": "user", 
-                "content": f"{translation_prompt}\n\n{input_text}"
+                "content": translation_prompt
             }]
         )
         
@@ -81,55 +92,33 @@ def main():
     from_lang = "Norwegian" if direction.startswith("Norwegian") else "English"
     to_lang = "English" if direction.startswith("Norwegian") else "Norwegian"
 
-    # Add HTML toggle
-    preserve_html = st.checkbox("Preserve HTML tags", help="Select this if your input includes HTML tags that should be preserved")
-
     st.subheader(f"{from_lang} Text")
     input_text = st.text_area(
         label="Input text",
         height=150,
         label_visibility="collapsed",
         key="input_area",
-        placeholder=f"Enter {from_lang} text (with or without HTML)..."
+        placeholder=f"Enter {from_lang} text..."
     )
 
     if st.button("Translate", type="primary"):
         if input_text:
             with st.spinner("Translating..."):
-                translation, analysis = get_translation_and_analysis(input_text, from_lang, to_lang, preserve_html)
+                translation, analysis = get_translation_and_analysis(input_text, from_lang, to_lang)
                 
                 if translation:
                     st.subheader(f"{to_lang} Translation")
-                    
-                    # Show raw HTML or rendered version
-                    show_raw = st.checkbox("Show raw HTML") if preserve_html else False
-                    
-                    if show_raw:
-                        st.text_area(
-                            label="Translation output",
-                            value=translation,
-                            height=150,
-                            label_visibility="collapsed",
-                            key="output_raw"
-                        )
-                    else:
-                        if preserve_html:
-                            st.markdown(translation, unsafe_allow_html=True)
-                        else:
-                            st.text_area(
-                                label="Translation output",
-                                value=translation,
-                                height=150,
-                                label_visibility="collapsed",
-                                key="output_area"
-                            )
+                    st.text_area(
+                        label="Translation output",
+                        value=translation,
+                        height=150,
+                        label_visibility="collapsed",
+                        key="output_area"
+                    )
                     
                     if analysis:
                         st.subheader("Translation Analysis")
-                        sections = analysis.split('\n')
-                        for section in sections:
-                            if section.strip():
-                                st.markdown(section.strip())
+                        st.markdown(analysis)
         else:
             st.warning("Please enter text to translate")
 

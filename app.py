@@ -1,5 +1,16 @@
 import streamlit as st
 from anthropic import Anthropic
+import re
+
+def clean_response(text):
+    """Clean the translation response"""
+    # Remove TextBlock wrapper
+    text = re.sub(r'\[TextBlock\(text=["\'](.*)["\'].*?\)\]', r'\1', str(text))
+    # Remove other formatting
+    text = text.replace('\\n', ' ').replace('\n', ' ')
+    # Clean up whitespace
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
 
 st.title("Climate Science Translator 🌍")
 
@@ -9,7 +20,7 @@ if 'direction' not in st.session_state:
 
 direction = st.radio(
     "Select translation direction:",
-    ["Norwegian → English", "English → Norwegian"],  # Changed order to make Norwegian->English first
+    ["Norwegian → English", "English → Norwegian"],
     horizontal=True,
     key='direction'
 )
@@ -30,7 +41,7 @@ if st.button("Translate", type="primary", key='translate_button'):
                 client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
                 
                 prompt = f"""Translate this {from_lang} text to {to_lang}. 
-                Provide only the translation with no additional text:
+                Provide only the direct translation, no additional text:
 
                 {input_text}"""
                 
@@ -44,9 +55,11 @@ if st.button("Translate", type="primary", key='translate_button'):
                 )
                 
                 if response and response.content:
+                    # Clean the response before displaying
+                    clean_translation = clean_response(response.content)
                     st.text_area(
                         f"{to_lang} Translation:",
-                        value=response.content,
+                        value=clean_translation,
                         height=150,
                         key='output'
                     )

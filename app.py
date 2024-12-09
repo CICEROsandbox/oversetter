@@ -3,7 +3,7 @@ from anthropic import Anthropic
 import re
 
 def clean_text(text):
-    """Clean text formatting more thoroughly"""
+    """Clean text formatting while preserving numbers"""
     # Remove [TextBlock] artifacts
     text = re.sub(r'\[TextBlock\(text=[\'"](.*)[\'"].*?\)\]', r'\1', str(text))
     
@@ -24,39 +24,26 @@ def clean_text(text):
     
     return text.strip()
 
-def format_numbers(text):
-    """Standardize number formatting"""
-    # Convert number words to numerals for thousands and above
-    number_words = {
-        'billion': '000000000',
-        'million': '000000',
-        'thousand': '000'
-    }
-    
-    for word, zeros in number_words.items():
-        pattern = rf'(\d+(?:,\d+)?)\s+{word}'
-        text = re.sub(pattern, lambda m: m.group(1).replace(',', '') + zeros, text)
-    
-    return text
-
 def get_translation_and_analysis(input_text, from_lang, to_lang):
-    """Get translation and analysis with improved formatting"""
+    """Get translation and analysis"""
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
-        # Get translation
+        # Get translation with explicit instruction about numbers
         translation_response = client.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
             messages=[{
                 "role": "user", 
-                "content": f"Translate this from {from_lang} to {to_lang}. Use consistent numerical formatting:\n\n{input_text}"
+                "content": f"""Translate this from {from_lang} to {to_lang}. 
+                Important: Keep numbers in their original format, just translate 'milliarder' to 'billion' when going from Norwegian to English.
+                
+                {input_text}"""
             }]
         )
         
         translation = clean_text(translation_response.content)
-        translation = format_numbers(translation)
         
         # Get analysis
         analysis_response = client.messages.create(

@@ -4,11 +4,14 @@ import re
 
 def clean_text(text):
     """Clean text formatting"""
+    # Convert to string if needed
+    text = str(text)
+    
     # Remove any "Here is the translation..." prefix
     text = re.sub(r'^.*?(?=In the|I f)', '', text, flags=re.DOTALL)
     
     # Remove [TextBlock] artifacts
-    text = re.sub(r'\[TextBlock\(text=[\'"](.*)[\'"].*?\)\]', r'\1', str(text))
+    text = re.sub(r'\[TextBlock\(text=[\'"](.*)[\'"].*?\)\]', r'\1', text)
     
     # Remove quotes and backslashes
     text = re.sub(r'[\'"\\]', '', text)

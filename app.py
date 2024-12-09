@@ -12,7 +12,7 @@ st.set_page_config(
 def load_reference_text():
     """Load IPCC parallel text for reference"""
     try:
-        df = pd.read_csv('data/ipcc_parallel_text (1).csv')
+        df = pd.read_csv('data/ipcc_parallel_text.csv')
         # Clean and prepare reference text
         df = df[['english', 'norwegian']].dropna()
         return df

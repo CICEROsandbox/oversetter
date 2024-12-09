@@ -1,5 +1,6 @@
 import streamlit as st
 from anthropic import Anthropic
+import re
 
 # Page configuration
 st.set_page_config(
@@ -7,6 +8,14 @@ st.set_page_config(
     page_icon="🌍",
     layout="centered"
 )
+
+def extract_translation(response):
+    """Extract clean translation from response"""
+    # Extract text between TextBlock(text='...')
+    match = re.search(r"TextBlock\(text='([^']+)'", str(response))
+    if match:
+        return match.group(1)
+    return str(response)  # Fallback to full response if pattern not found
 
 def translate_text(text, from_lang, to_lang):
     """Translate text using Claude API"""
@@ -17,7 +26,7 @@ def translate_text(text, from_lang, to_lang):
 
         {text}
 
-        Provide only the translation with no additional text or explanations."""
+        Provide only the direct translation."""
         
         response = anthropic.messages.create(
             model="claude-3-opus-20240229",
@@ -28,12 +37,8 @@ def translate_text(text, from_lang, to_lang):
             ]
         )
         
-        # Get the translation from the response
-        translation = response.content
-        
-        # For debugging
-        st.write("Debug - Raw response:", translation)
-        
+        # Clean the response
+        translation = extract_translation(response.content)
         return translation
         
     except Exception as e:

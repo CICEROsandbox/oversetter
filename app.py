@@ -4,6 +4,9 @@ import re
 
 def clean_text(text):
     """Clean text formatting"""
+    # Remove any "Here is the translation..." prefix
+    text = re.sub(r'^.*?(?=In the|I f)', '', text, flags=re.DOTALL)
+    
     # Remove [TextBlock] artifacts
     text = re.sub(r'\[TextBlock\(text=[\'"](.*)[\'"].*?\)\]', r'\1', str(text))
     
@@ -11,39 +14,14 @@ def clean_text(text):
     text = re.sub(r'[\'"\\]', '', text)
     
     # Replace 'nn' between sentences with proper spacing
-    text = re.sub(r'nn(?=[A-Z])', '. ', text)
+    text = re.sub(r'(?<!\.)\s*\.\s*n+\s*(?=[A-Z])', '. ', text)
     
-    # Clean up extra spaces
+    # Clean up extra spaces and periods
     text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'\.+', '.', text)
+    text = text.strip()
     
-    return text.strip()
-
-def format_analysis(text):
-    """Format analysis text with proper sections"""
-    # Split into sections
-    sections = {
-        "Key Terms": [],
-        "Challenges": [],
-        "Suggestions": []
-    }
-    
-    current_section = None
-    for line in text.split('\n'):
-        line = line.strip()
-        if line in sections:
-            current_section = line
-        elif current_section and line:
-            sections[current_section].append(line)
-    
-    # Format output
-    result = []
-    for section, items in sections.items():
-        if items:
-            result.append(f"{section}:")
-            result.extend([f"• {item}" for item in items])
-            result.append("")  # Add blank line between sections
-            
-    return "\n".join(result)
+    return text
 
 def get_translation_and_analysis(input_text, from_lang, to_lang):
     """Get translation and analysis"""
@@ -61,7 +39,7 @@ def get_translation_and_analysis(input_text, from_lang, to_lang):
                 Important:
                 - Keep numbers in their original format
                 - Just translate 'milliarder' to 'billion' when going from Norwegian to English
-                - Include alternative translations in parentheses for key terms
+                - Provide a direct translation without any introduction or meta-text
                 
                 {input_text}"""
             }]
@@ -84,8 +62,7 @@ def get_translation_and_analysis(input_text, from_lang, to_lang):
                 Provide brief analysis in these sections:
                 
                 Key Terms:
-                • List 2-3 key translations with alternatives in parentheses
-                • Example: "utslippskutt" → "emission cuts (emission reductions)"
+                • List 2-3 key translation pairs
                 
                 Challenges:
                 • Note 1-2 specific translation challenges
@@ -96,7 +73,6 @@ def get_translation_and_analysis(input_text, from_lang, to_lang):
         )
         
         analysis = clean_text(analysis_response.content)
-        analysis = format_analysis(analysis)
         return translation, analysis
         
     except Exception as e:
@@ -146,7 +122,7 @@ def main():
                         key="output_area"
                     )
                     
-                    # Show analysis directly (not in expander)
+                    # Show analysis directly
                     st.subheader("Translation Analysis")
                     st.text_area(
                         label="Translation analysis",

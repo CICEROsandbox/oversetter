@@ -62,16 +62,13 @@ def get_translation_and_analysis(input_text, from_lang, to_lang):
                 Original: {input_text}
                 Translation: {translation}
 
-                Provide brief analysis in these sections:
-                
-                Key Terms:
-                • List 2-3 key translation pairs
-                
-                Challenges:
-                • Note 1-2 specific translation challenges
-                
-                Suggestions:
-                • Provide 1-2 concrete improvement ideas"""
+                Analyze the translation focusing on:
+                1. Key terminology choices and possible alternatives
+                2. Any challenging phrases or cultural concepts
+                3. Specific suggestions for improvements
+                4. Number formatting and consistency
+
+                Keep the analysis concise but informative."""
             }]
         )
         
@@ -125,15 +122,13 @@ def main():
                         key="output_area"
                     )
                     
-                    # Show analysis directly
+                    # Show analysis directly without text area
                     st.subheader("Translation Analysis")
-                    st.text_area(
-                        label="Translation analysis",
-                        value=analysis,
-                        height=200,
-                        label_visibility="collapsed",
-                        key="analysis_area"
-                    )
+                    # Split analysis into paragraphs and display with proper spacing
+                    for paragraph in analysis.split('\n'):
+                        if paragraph.strip():
+                            st.write(paragraph.strip())
+                            st.write("")  # Add space between paragraphs
         else:
             st.warning("Please enter text to translate")
 

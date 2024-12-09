@@ -1,21 +1,29 @@
 import streamlit as st
 from anthropic import Anthropic
 import pandas as pd
+import requests
 import re
 
 def load_ipcc_examples():
-    """Load and prepare IPCC parallel text"""
+    """Load IPCC parallel text from local file or GitHub"""
+    # Try local file first
     try:
         df = pd.read_csv('data/ipcc_parallel_text.csv')
-        # Get relevant examples (e.g., first few rows or most relevant)
-        examples = df[['english', 'norwegian']].head(3).to_dict('records')
-        return examples
-    except Exception as e:
-        st.warning("Note: IPCC reference text not loaded. Translations will continue without examples.")
-        return []
+        st.success("✓ Using local IPCC reference text")
+        return df[['english', 'norwegian']].head(3).to_dict('records')
+    except Exception:
+        # If local file fails, try GitHub
+        try:
+            url = "https://raw.githubusercontent.com/CICEROsandbox/oversetter/refs/heads/main/data/ipcc_parallel_text.csv"
+            df = pd.read_csv(url)
+            st.success("✓ Using IPCC reference text from GitHub")
+            return df[['english', 'norwegian']].head(3).to_dict('records')
+        except Exception as e:
+            st.error("✗ Could not load IPCC reference text")
+            return []
 
 def clean_response(response):
-    """Aggressively clean Claude's response"""
+    """Clean Claude's response"""
     text = str(response)
     patterns_to_remove = [
         r'\[TextBlock\(text=\'.*?\'.*?\)\]',
@@ -45,7 +53,6 @@ def translate_text(text, from_lang, to_lang):
             for ex in ipcc_examples:
                 example_text += f"\nEnglish: {ex['english']}\nNorwegian: {ex['norwegian']}\n"
 
-        # Create prompt with examples
         prompt = f"""You are a climate science translator. {example_text}
 
         Translate this text from {from_lang} to {to_lang}, 
@@ -73,14 +80,6 @@ def translate_text(text, from_lang, to_lang):
 
 # UI Components
 st.title("Climate Science Translator 🌍")
-
-# Show status of IPCC reference data
-if st.checkbox("Show IPCC reference status", value=False):
-    try:
-        df = pd.read_csv('data/ipcc_parallel_text (1).csv')
-        st.success(f"✓ Using IPCC reference text ({len(df)} examples loaded)")
-    except:
-        st.error("✗ IPCC reference text not found")
 
 # Translation direction
 direction = st.radio(

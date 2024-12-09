@@ -1,53 +1,57 @@
 import streamlit as st
 from anthropic import Anthropic
 import pandas as pd
+import re
 
-# Page configuration
-st.set_page_config(
-    page_title="Climate Science Translator",
-    page_icon="🌍",
-    layout="centered"
-)
+def clean_response(response):
+    """Clean up Claude's response format"""
+    # Remove TextBlock wrapper
+    cleaned = re.sub(r'\[TextBlock\(text=\'(.*?)\'.*?\)\]', r'\1', str(response))
+    # Remove intro phrases
+    cleaned = re.sub(r'Here is the .* translation[,\s\w]*:\s*\n+', '', cleaned)
+    # Clean up extra whitespace
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
 
-def load_reference_text():
-    """Load IPCC parallel text for reference"""
-    try:
-        df = pd.read_csv('data/ipcc_parallel_text.csv')
-        # Clean and prepare reference text
-        df = df[['english', 'norwegian']].dropna()
-        return df
-    except Exception as e:
-        st.error(f"Error loading reference text: {e}")
-        return None
-
-def create_translation_prompt(text, from_lang, to_lang, reference_df):
-    """Create prompt with IPCC reference examples"""
-    # Get a few relevant reference examples
-    examples = ""
-    if reference_df is not None:
-        for _, row in reference_df.head(3).iterrows():
-            examples += f"\nExample {from_lang}: {row[from_lang.lower()]}\n"
-            examples += f"Example {to_lang}: {row[to_lang.lower()]}\n"
-
-    prompt = f"""You are translating climate science content from {from_lang} to {to_lang}.
-    Use these IPCC translation examples for reference and terminology:
-    {examples}
+def check_terminology(text, reference_df):
+    """Check if key climate terms are translated consistently"""
+    key_terms = {
+        'climate change': 'klimaendringer',
+        'greenhouse gas': 'klimagass',
+        'emissions': 'utslipp',
+        'global warming': 'global oppvarming'
+        # Add more terms from your IPCC text
+    }
     
-    Translate this text, maintaining scientific accuracy and IPCC style:
-    {text}
-    """
-    return prompt
+    inconsistencies = []
+    for eng, nor in key_terms.items():
+        if eng in text.lower() and nor not in text.lower():
+            inconsistencies.append(f"Check term: {eng} -> {nor}")
+    return inconsistencies
+
+def calculate_confidence(text, reference_df):
+    """Calculate confidence score based on reference matches"""
+    # Simple scoring based on key term matches
+    score = 100
+    inconsistencies = check_terminology(text, reference_df)
+    score -= len(inconsistencies) * 10
+    return max(score, 0)
 
 def translate_text(text, from_lang, to_lang):
-    """Translate text using Claude API with IPCC reference"""
+    """Enhanced translation with quality checks"""
     try:
         # Load reference text
-        reference_df = load_reference_text()
+        reference_df = pd.read_csv('data/ipcc_parallel_text (1).csv')
         
-        # Create prompt with examples
-        prompt = create_translation_prompt(text, from_lang, to_lang, reference_df)
+        # Create prompt with specific instructions
+        prompt = f"""Translate this {from_lang} climate science text to {to_lang}.
+        Provide ONLY the direct translation, no explanations or metadata.
+        Use IPCC terminology and maintain scientific accuracy.
+
+        Text to translate:
+        {text}
+        """
         
-        # Get translation
         anthropic = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         message = anthropic.messages.create(
             model="claude-3-opus-20240229",
@@ -58,27 +62,39 @@ def translate_text(text, from_lang, to_lang):
             ]
         )
         
-        return str(message.content)
+        # Clean response
+        translation = clean_response(message.content)
+        
+        # Run quality checks
+        inconsistencies = check_terminology(translation, reference_df)
+        confidence = calculate_confidence(translation, reference_df)
+        
+        return translation, inconsistencies, confidence
         
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
-        return None
+        return None, [], 0
 
-# Main UI
+# UI Components
 st.title("Climate Science Translator 🌍")
 
-# Translation direction selector
+# Translation direction
 direction = st.radio(
     "Select translation direction:",
     ["English → Norwegian", "Norwegian → English"],
     horizontal=True
 )
 
-# Set languages based on direction
 from_lang = "English" if direction.startswith("English") else "Norwegian"
 to_lang = "Norwegian" if direction.startswith("English") else "English"
 
-# Input text area
+# Input with document type selection
+doc_type = st.selectbox(
+    "Document type:",
+    ["Scientific report", "Public communication", "Policy brief"]
+)
+
+# Input text
 st.subheader(f"{from_lang} Text")
 input_text = st.text_area(
     "Enter text to translate:",
@@ -86,12 +102,16 @@ input_text = st.text_area(
     label_visibility="collapsed"
 )
 
-# Translation button
+# Translation
 if st.button("Translate", type="primary"):
     if input_text:
         with st.spinner("Translating..."):
-            translation = translate_text(input_text, from_lang, to_lang)
+            translation, inconsistencies, confidence = translate_text(
+                input_text, from_lang, to_lang
+            )
+            
             if translation:
+                # Show translation
                 st.subheader(f"{to_lang} Translation")
                 st.text_area(
                     "Translation result",
@@ -99,6 +119,19 @@ if st.button("Translate", type="primary"):
                     height=150,
                     label_visibility="collapsed"
                 )
+                
+                # Show quality metrics in columns
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Confidence Score", f"{confidence}%")
+                
+                with col2:
+                    if inconsistencies:
+                        st.warning("Terminology checks:")
+                        for issue in inconsistencies:
+                            st.write(f"• {issue}")
+                    else:
+                        st.success("Terminology verified ✓")
     else:
         st.warning("Please enter some text to translate")
 

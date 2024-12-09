@@ -41,7 +41,7 @@ def translate_text(text, from_lang, to_lang):
     """Enhanced translation with quality checks"""
     try:
         # Load reference text
-        reference_df = pd.read_csv('data/ipcc_parallel_text (1).csv')
+        reference_df = pd.read_csv('data/ipcc_parallel_text.csv')
         
         # Create prompt with specific instructions
         prompt = f"""Translate this {from_lang} climate science text to {to_lang}.

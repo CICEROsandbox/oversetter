@@ -5,10 +5,10 @@ from anthropic import Anthropic
 st.set_page_config(
     page_title="Climate Science Translator",
     page_icon="🌍",
-    layout="centered"  # Changed to centered for better performance
+    layout="centered"
 )
 
-@st.cache_data  # Cache translations to improve performance
+@st.cache_data
 def translate_text(text, from_lang, to_lang):
     """Translate text using Claude API with caching"""
     if not text:
@@ -31,7 +31,8 @@ def translate_text(text, from_lang, to_lang):
                 {"role": "user", "content": prompt}
             ]
         )
-        return message.content
+        # Extract the content as a string
+        return str(message.content)
     except Exception as e:
         st.error(f"An error occurred during translation. Please try again.")
         return None
@@ -74,14 +75,17 @@ if st.button("Translate", type="primary"):
                     key='output'
                 )
                 
-                # Fixed download button
-                st.download_button(
-                    label="Download Translation",
-                    data=translation.encode('utf-8'),
-                    file_name=f"translation_{to_lang.lower()}.txt",
-                    mime="text/plain",
-                    key='download'
-                )
+                # Ensure translation is a string before encoding
+                if isinstance(translation, str):
+                    st.download_button(
+                        label="Download Translation",
+                        data=translation.encode('utf-8'),
+                        file_name=f"translation_{to_lang.lower()}.txt",
+                        mime="text/plain",
+                        key='download'
+                    )
+                else:
+                    st.error("Unable to prepare download. Please try translating again.")
     else:
         st.warning("Please enter some text to translate")
 

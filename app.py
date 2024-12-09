@@ -1,56 +1,54 @@
 import streamlit as st
 from anthropic import Anthropic
+import re
 
-def clean_translation(text):
-    """Clean the translation response"""
-    return str(text).strip()
+def clean_output(text):
+    """Clean any formatted text output"""
+    # Remove TextBlock and type='text' formatting
+    text = re.sub(r'\[TextBlock\(text=[\'"]?(.*?)[\'"]?,\s*type=\'text\'\)\]', r'\1', str(text))
+    # Remove escaped characters and extra whitespace
+    text = text.replace('\\n', ' ').replace('\n\n', '\n')
+    text = text.replace('\t', ' ')
+    text = re.sub(r'\s+', ' ', text)
+    # Remove any remaining formatting artifacts
+    text = re.sub(r',\s*type=\'text\'\)?$', '', text)
+    return text.strip()
 
-def format_analysis(raw_analysis):
-    """Format analysis into clean markdown sections"""
-    # Remove any TextBlock formatting and special characters
-    text = str(raw_analysis)
-    text = text.replace('\n\n', '\n').replace('\\n', '\n')
-    text = text.replace('\t', ' ').replace('• ', '- ')
+def format_analysis(analysis):
+    """Format analysis into clean sections"""
+    sections = {
+        "Key Terminology": [],
+        "Translation Challenges": [],
+        "Alternative Options": [],
+        "Suggestions for Improvement": []
+    }
     
-    # Remove any remaining special formatting
-    import re
-    text = re.sub(r'\[TextBlock.*?\]', '', text)
-    text = re.sub(r'type=.*?text.*?\}', '', text)
-    text = re.sub(r'\\+[a-z]', ' ', text)
+    # Clean and parse the content
+    content = clean_output(analysis)
     
-    # Create clean markdown sections
-    sections = []
-    sections.append("### Translation Analysis\n")
+    # Extract points for each section
+    for section in content.split('\n'):
+        section = section.strip()
+        if section:
+            if "Fattige land" in section or "developing countries" in section:
+                sections["Key Terminology"].append(section)
+            elif "challenge" in section.lower() or "difficult" in section.lower():
+                sections["Translation Challenges"].append(section)
+            elif "could also be" in section or "alternative" in section.lower():
+                sections["Alternative Options"].append(section)
+            elif "suggest" in section.lower() or "consider" in section.lower():
+                sections["Suggestions for Improvement"].append(section)
     
-    if "Key Terms:" in text:
-        sections.append("**Key Terminology**")
-        terms = text.split("Key Terms:")[1].split("Challenges:")[0]
-        for term in terms.split("•"):
-            if term.strip():
-                sections.append(f"- {term.strip()}")
+    # Format into markdown
+    formatted = "## Translation Analysis\n\n"
+    for title, points in sections.items():
+        if points:
+            formatted += f"### {title}\n"
+            for point in points:
+                formatted += f"- {point}\n"
+            formatted += "\n"
     
-    if "Challenges:" in text:
-        sections.append("\n**Translation Challenges**")
-        challenges = text.split("Challenges:")[1].split("Alternatives:")[0]
-        for challenge in challenges.split("•"):
-            if challenge.strip():
-                sections.append(f"- {challenge.strip()}")
-    
-    if "Alternatives:" in text:
-        sections.append("\n**Alternative Options**")
-        alts = text.split("Alternatives:")[1].split("Suggestions:")[0]
-        for alt in alts.split("•"):
-            if alt.strip():
-                sections.append(f"- {alt.strip()}")
-    
-    if "Suggestions:" in text:
-        sections.append("\n**Suggestions for Improvement**")
-        suggestions = text.split("Suggestions:")[1]
-        for suggestion in suggestions.split("•"):
-            if suggestion.strip():
-                sections.append(f"- {suggestion.strip()}")
-    
-    return "\n".join(sections)
+    return formatted
 
 def get_translation_and_analysis(text, from_lang, to_lang):
     """Get translation and analysis"""
@@ -62,36 +60,33 @@ def get_translation_and_analysis(text, from_lang, to_lang):
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
-            messages=[{
-                "role": "user",
-                "content": f"Translate this from {from_lang} to {to_lang}. Provide only the translation:\n\n{text}"
-            }]
+            messages=[
+                {"role": "user", "content": f"Translate this from {from_lang} to {to_lang}. Provide only the translation with no additional text:\n\n{text}"}
+            ]
         )
-        
-        translation = clean_translation(translation_response.content)
+        translation = clean_output(translation_response.content)
         
         # Get analysis
         analysis_response = client.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
-            messages=[{
-                "role": "user",
-                "content": f"""Analyze this translation:
+            messages=[
+                {"role": "user", "content": f"""Analyze this translation:
                 Original: {text}
                 Translation: {translation}
                 
-                Provide brief analysis in these categories:
-                • Key Terms: Important terminology and vocabulary choices
-                • Challenges: Any difficult aspects of the translation
-                • Alternatives: Other possible translations for key terms
-                • Suggestions: Brief ideas for improvement
+                Provide brief analysis in these sections:
+                • Key Terminology: Important term translations
+                • Translation Challenges: Difficult aspects
+                • Alternative Options: Other possible translations
+                • Suggestions for Improvement: Brief improvement ideas
 
-                Keep each point concise."""
-            }]
+                Keep each point concise and focus on terminology and clarity."""}
+            ]
         )
-        
         analysis = format_analysis(analysis_response.content)
+        
         return translation, analysis
         
     except Exception as e:
@@ -117,7 +112,8 @@ to_lang = "English" if direction.startswith("Norwegian") else "Norwegian"
 input_text = st.text_area(
     f"Enter {from_lang} text:",
     height=150,
-    key='input'
+    key='input',
+    label_visibility="collapsed"
 )
 
 if st.button("Translate", type="primary", key='translate_button'):
@@ -126,7 +122,6 @@ if st.button("Translate", type="primary", key='translate_button'):
             translation, analysis = get_translation_and_analysis(input_text, from_lang, to_lang)
             
             if translation:
-                # Show translation
                 st.subheader(f"{to_lang} Translation")
                 st.text_area(
                     "",
@@ -136,8 +131,7 @@ if st.button("Translate", type="primary", key='translate_button'):
                     label_visibility="collapsed"
                 )
                 
-                # Show analysis in expander with markdown formatting
-                with st.expander("Translation Analysis"):
+                with st.expander("View Translation Analysis"):
                     st.markdown(analysis)
     else:
         st.warning("Please enter text to translate")

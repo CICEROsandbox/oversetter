@@ -96,34 +96,25 @@ def clean_text(text, preserve_html: bool = False) -> str:
     elif not isinstance(text, str):
         text = str(text)
     
-    # Remove various artifacts
-    text = re.sub(r'TextBlock\(text=[\'"](.*?)[\'"]\)', r'\1', text)  # Remove TextBlock wrapper
-    text = re.sub(r'\*\*\s*([^*]+?)\s*\*\*', r'\1', text)  # Remove markdown bold
+    # First, remove all technical artifacts and formatting
     text = re.sub(r'<userStyle>.*?</userStyle>', '', text)  # Remove userStyle tags
+    text = re.sub(r'TextBlock\(text=[\'"](.*?)[\'"]\)', r'\1', text)  # Remove TextBlock wrapper
     text = re.sub(r"['\"]?,?\s*type=['\"]text['\"]", '', text)  # Remove type='text'
+    text = re.sub(r'Here is the translation.*?:\n\n', '', text)  # Remove translation prefix
+    text = re.sub(r'\*\*\s*(.*?)\s*\*\*', r'\1', text)  # Remove markdown bold
     text = re.sub(r'\(\s*\)', '', text)  # Remove empty parentheses
     text = re.sub(r',\s*$', '', text)  # Remove trailing commas
     text = re.sub(r"^'|'$", '', text)  # Remove single quotes at start/end
+    text = re.sub(r'\\n', '\n', text)  # Convert escaped newlines to actual newlines
     
-    # Fix spacing issues
-    text = re.sub(r'\n{3,}', '\n\n', text)  # Reduce multiple newlines
-    text = re.sub(r'^\s+', '', text)  # Remove leading whitespace
-    text = re.sub(r'\s+$', '', text)  # Remove trailing whitespace
+    # Clean up whitespace
+    text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
+    text = text.strip()
     
-    if preserve_html:
-        # Clean up whitespace while preserving HTML structure
-        text = re.sub(r'>\s+<', '><', text)
-        text = re.sub(r'>\s+([^<])', r'>\1', text)
-        text = re.sub(r'([^>])\s+<', r'\1<', text)
-    else:
-        # For plain text, ensure proper sentence spacing
-        text = re.sub(r'\s+', ' ', text)
-        text = re.sub(r'\. ([A-Z])', '.\n\n\\1', text)
-    
-    return text.strip()
+    return text
 
 def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
-    """Get translation and analysis with improved artifact handling"""
+    """Get translation and analysis with improved handling"""
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
@@ -131,14 +122,20 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
             translatable_elements = extract_translatable_content(input_text)
             
             translation_prompt = f"""Translate this content from {from_lang} to {to_lang}.
-            Important:
-            - Translate only the actual content
-            - Preserve HTML structure exactly
-            - Do not add any technical annotations or metadata
-            - Do not add phrases like 'type=text' or similar
-            - Keep heading formats but translate the text
-            - Maintain the same paragraph structure
-            For the title/heading, translate directly without adding any metadata or quotes.
+            Important rules:
+            1. Translate ALL text content - don't skip anything
+            2. Keep HTML tags exactly as they are
+            3. Don't add any formatting marks or technical annotations
+            4. Don't add any metadata like 'type=text'
+            5. Remove any "Here is the translation..." prefixes
+            6. Don't add any extra quotes or asterisks
+            7. Keep the same paragraph structure
+            8. If you see text in quotes, translate the text but keep the quotes
+            
+            For example:
+            Input: <p>"Dette er en test"</p>
+            Correct: <p>"This is a test"</p>
+            Wrong: <p>type='text' "This is a test"</p>
             """
             
             progress_bar = st.progress(0)
@@ -151,19 +148,13 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                 if element['text'].strip():
                     status_text.text(f"Translating element {idx + 1} of {total_elements}...")
                     
-                    # Special handling for titles to prevent artifacts
-                    if element['tag'] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                        prompt = f"{translation_prompt}\nThis is a title/heading - translate only the text without adding any metadata:"
-                    else:
-                        prompt = translation_prompt
-                    
                     translation_response = client.messages.create(
                         model="claude-3-opus-20240229",
                         max_tokens=1000,
                         temperature=0,
                         messages=[{
                             "role": "user",
-                            "content": f"{prompt}\n\nText to translate: {element['text']}"
+                            "content": f"{translation_prompt}\n\nText to translate: {element['text']}"
                         }]
                     )
                     
@@ -175,12 +166,8 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
             status_text.empty()
             progress_bar.empty()
             
-            # Final cleanup pass
-            translated_html = re.sub(r"['\"]?,?\s*type=['\"]text['\"]", '', translated_html)
-            translated_html = re.sub(r"',\s*$", '', translated_html)
-            translated_html = re.sub(r"^'", '', translated_html)
-            translated_html = re.sub(r',\s*$', '', translated_html)
-            translated_html = re.sub(r'>\s+<', '><', translated_html)
+            # Final cleanup
+            translated_html = clean_text(translated_html, preserve_html=True)
             
         else:
             translation_response = client.messages.create(
@@ -189,7 +176,11 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                 temperature=0,
                 messages=[{
                     "role": "user",
-                    "content": f"Translate this from {from_lang} to {to_lang}:\n\n{input_text}"
+                    "content": f"""Translate this from {from_lang} to {to_lang}.
+                    Important: Translate ALL text and keep any quotation marks around quoted text.
+                    Do not add any metadata or formatting.
+                    
+                    Text to translate: {input_text}"""
                 }]
             )
             
@@ -216,7 +207,6 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
         return None, None
-
 def main():
     st.set_page_config(page_title="CICERO Article Translator", layout="wide")
 

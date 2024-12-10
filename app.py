@@ -88,7 +88,7 @@ def extract_translatable_content(html_content: str) -> list:
             })
     
     return translatable_elements
-    
+
 def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
     """Get translation and analysis with improved artifact handling"""
     try:
@@ -183,8 +183,8 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
         return None, None
-        
-            def main():
+
+def main():
     st.set_page_config(page_title="CICERO Article Translator", layout="wide")
 
     # Initialize session state

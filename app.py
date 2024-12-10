@@ -19,16 +19,17 @@ def fetch_cicero_article(url: str) -> str:
         title = soup.find('h1')
         if title:
             article_content.append(str(title))
-            
-        # Get article intro
-        intro = soup.find('div', class_='styles_textBlock___VSu1')
-        if intro:
-            article_content.append(str(intro))
-            
-        # Get main article content
+        
+        # Get only the main article content (avoiding duplicate intro)
         main_content = soup.find_all('div', class_='styles_textBlock___VSu1')
         if main_content:
-            article_content.extend([str(content) for content in main_content])
+            # Skip the first occurrence if it's duplicate intro text
+            seen_text = set()
+            for content in main_content:
+                text = content.get_text(strip=True)
+                if text not in seen_text:
+                    article_content.append(str(content))
+                    seen_text.add(text)
             
         return '\n'.join(article_content)
     except Exception as e:
@@ -155,14 +156,19 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
 def main():
     st.set_page_config(page_title="CICERO Article Translator", layout="wide")
 
-    st.markdown('<h1 style="font-size: 2.5rem; font-weight: bold;">CICERO Article Translator 🌍</h1>', unsafe_allow_html=True)
+    # Create two columns for the layout
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown('<h1 style="font-size: 2.5rem; font-weight: bold;">CICERO Article Translator 🌍</h1>', unsafe_allow_html=True)
 
-    direction = st.radio(
-        "Select translation direction:",
-        ["Norwegian → English", "English → Norwegian"],
-        horizontal=True,
-        label_visibility="collapsed"
-    )
+    with col2:
+        direction = st.radio(
+            "Select translation direction:",
+            ["Norwegian → English", "English → Norwegian"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
 
     from_lang = "Norwegian" if direction.startswith("Norwegian") else "English"
     to_lang = "English" if direction.startswith("Norwegian") else "Norwegian"
@@ -180,63 +186,76 @@ def main():
         help="Keep HTML tags and structure from CICERO articles (recommended for website content)"
     )
 
-    if input_method == "Paste URL":
-        url = st.text_input(
-            "Enter CICERO article URL",
-            placeholder="https://cicero.oslo.no/no/artikler/..."
-        )
-        if url:
-            try:
-                with st.spinner("Fetching article content..."):
-                    input_text = fetch_cicero_article(url)
-                st.subheader("Fetched Content")
-                if preserve_html:
-                    st.markdown(input_text, unsafe_allow_html=True)
-                else:
-                    st.text_area("Fetched content", input_text, height=200)
-            except Exception as e:
-                st.error(f"Error fetching article: {str(e)}")
+    # Create container with max width
+    container = st.container()
+    with container:
+        if input_method == "Paste URL":
+            url = st.text_input(
+                "Enter CICERO article URL",
+                placeholder="https://cicero.oslo.no/no/artikler/..."
+            )
+            if url:
+                try:
+                    with st.spinner("Fetching article content..."):
+                        input_text = fetch_cicero_article(url)
+                    st.subheader("Fetched Content")
+                    col1, col2, col3 = st.columns([1, 2, 1])
+                    with col2:
+                        if preserve_html:
+                            st.markdown(input_text, unsafe_allow_html=True)
+                        else:
+                            st.text_area("Fetched content", input_text, height=200)
+                except Exception as e:
+                    st.error(f"Error fetching article: {str(e)}")
+                    input_text = ""
+            else:
                 input_text = ""
         else:
-            input_text = ""
-    else:
-        input_text = st.text_area(
-            label="Input text",
-            height=300,
-            label_visibility="collapsed",
-            key="input_area",
-            placeholder=f"Paste {from_lang} article content here..."
-        )
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                input_text = st.text_area(
+                    label="Input text",
+                    height=300,
+                    label_visibility="collapsed",
+                    key="input_area",
+                    placeholder=f"Paste {from_lang} article content here..."
+                )
 
-    if st.button("Translate", type="primary"):
-        if input_text:
-            with st.spinner("Translating..."):
-                translation, analysis = get_translation_and_analysis(input_text, from_lang, to_lang, preserve_html)
-                
-                if translation:
-                    st.subheader(f"{to_lang} Translation")
+        if st.button("Translate", type="primary"):
+            if input_text:
+                with st.spinner("Translating..."):
+                    translation, analysis = get_translation_and_analysis(input_text, from_lang, to_lang, preserve_html)
                     
-                    show_raw = st.checkbox("Show raw HTML", help="View the HTML code of the translation")
-                    
-                    if show_raw:
-                        st.text_area("Raw HTML Output", translation, height=300, key="output_raw")
-                    else:
-                        if preserve_html:
-                            st.markdown(translation, unsafe_allow_html=True)
-                        else:
-                            st.text_area(
-                                label="Translation output",
-                                value=translation,
-                                height=300,
-                                label_visibility="collapsed",
-                                key="output_area"
-                            )
-                    
-                    if analysis:
-                        st.subheader("Translation Analysis")
-                        st.markdown(analysis)
-        else:
-            st.warning("Please enter a URL or paste content to translate")
+                    if translation:
+                        st.subheader(f"{to_lang} Translation")
+                        
+                        # Store translation in session state
+                        if 'translation' not in st.session_state:
+                            st.session_state.translation = translation
+                        
+                        show_raw = st.checkbox("Show raw HTML", help="View the HTML code of the translation")
+                        
+                        col1, col2, col3 = st.columns([1, 2, 1])
+                        with col2:
+                            if show_raw:
+                                st.text_area("Raw HTML Output", st.session_state.translation, height=300)
+                            else:
+                                if preserve_html:
+                                    st.markdown(translation, unsafe_allow_html=True)
+                                else:
+                                    st.text_area(
+                                        label="Translation output",
+                                        value=translation,
+                                        height=300,
+                                        label_visibility="collapsed",
+                                        key="output_area"
+                                    )
+                        
+                        if analysis:
+                            st.subheader("Translation Analysis")
+                            st.markdown(analysis)
+            else:
+                st.warning("Please enter a URL or paste content to translate")
 
     st.caption("Created by CICERO • Powered by Claude API")
 

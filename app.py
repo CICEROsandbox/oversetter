@@ -102,6 +102,10 @@ def main():
 
     # Add HTML toggle
     preserve_html = st.checkbox("Preserve HTML tags", help="Select this if your input includes HTML tags that should be preserved")
+    
+    # Move the show_raw checkbox before translation
+    if preserve_html:
+        show_raw = st.checkbox("Show raw HTML", help="Select to see the raw HTML in the translation")
 
     st.subheader(f"{from_lang} Text")
     input_text = st.text_area(
@@ -120,12 +124,9 @@ def main():
                 if translation:
                     st.subheader(f"{to_lang} Translation")
                     
-                    # Show raw HTML or rendered version
-                    show_raw = st.checkbox("Show raw HTML") if preserve_html else False
-                    
                     if preserve_html:
                         if show_raw:
-                            st.text_area("Raw HTML Output", translation, key="output_raw")
+                            st.text_area("Raw HTML Output", translation, height=150, key="output_raw")
                         else:
                             st.markdown(translation, unsafe_allow_html=True)
                     else:

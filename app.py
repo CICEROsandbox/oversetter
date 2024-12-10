@@ -35,11 +35,123 @@ def fetch_cicero_article(url: str) -> str:
     except Exception as e:
         raise Exception(f"Error fetching article: {str(e)}")
 
-# [Previous functions remain the same: clean_text, extract_translatable_content, get_translation_and_analysis]
+def clean_text(text, preserve_html: bool = False) -> str:
+    """Clean text while preserving HTML if needed"""
+    if isinstance(text, list):
+        text = ' '.join(str(item) for item in text)
+    elif not isinstance(text, str):
+        text = str(text)
+    
+    # Remove TextBlock artifacts
+    text = re.sub(r'TextBlock\(text=[\'"](.*?)[\'"]\)', r'\1', text)
+    
+    if preserve_html:
+        # Clean up newlines and spaces while preserving HTML tags
+        text = re.sub(r'\\n\\n|\\n|\n\n|\n', ' ', text)
+        text = re.sub(r'\s+', ' ', text)
+    else:
+        # Clean up all formatting
+        text = re.sub(r'\\n\\n|\\n|\n\n|\n', ' ', text)
+        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r'\. ([A-Z])', '.\n\n\\1', text)
+    
+    return text.strip()
 
-def download_html(translated_html):
-    """Create a download link for the raw HTML"""
-    return f'<a href="data:text/html;charset=utf-8,{translated_html}" download="translation.html">Download Raw HTML</a>'
+def extract_translatable_content(html_content: str) -> dict:
+    """Extract only the translatable content from CICERO HTML while preserving structure"""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    translatable_elements = []
+    
+    # Get text from specific content areas
+    content_selectors = [
+        'div.styles_textBlock___VSu1',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'p:not(.styles_caption__qsbpi)',
+        'figcaption'
+    ]
+    
+    for selector in content_selectors:
+        elements = soup.select(selector)
+        for elem in elements:
+            translatable_elements.append({
+                'html': str(elem),
+                'text': elem.get_text(strip=True),
+                'tag': elem.name
+            })
+    
+    return translatable_elements
+
+def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
+    """Get translation and analysis with enhanced HTML support for CICERO content"""
+    try:
+        client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        
+        if preserve_html:
+            translatable_elements = extract_translatable_content(input_text)
+            
+            translation_prompt = f"""Translate this content from {from_lang} to {to_lang}.
+            Important:
+            - Only translate the text content between HTML tags
+            - Preserve all HTML tags and attributes exactly
+            - Maintain all links, references, and internal structure
+            - Keep image references and captions in their original structure
+            - Skip any structural content (menus, navigation, metadata)
+            - For headings, maintain the appropriate tone and style for headlines
+            """
+            
+            translated_html = input_text
+            for element in translatable_elements:
+                if element['text'].strip():
+                    translation_response = client.messages.create(
+                        model="claude-3-opus-20240229",
+                        max_tokens=1000,
+                        temperature=0,
+                        messages=[{
+                            "role": "user",
+                            "content": f"{translation_prompt}\n\nText to translate: {element['text']}"
+                        }]
+                    )
+                    
+                    translated_text = clean_text(translation_response.content)
+                    translated_html = translated_html.replace(element['text'], translated_text)
+        
+        else:
+            translation_response = client.messages.create(
+                model="claude-3-opus-20240229",
+                max_tokens=1000,
+                temperature=0,
+                messages=[{
+                    "role": "user",
+                    "content": f"Translate this from {from_lang} to {to_lang}:\n\n{input_text}"
+                }]
+            )
+            translated_html = clean_text(translation_response.content)
+        
+        analysis_response = client.messages.create(
+            model="claude-3-opus-20240229",
+            max_tokens=1000,
+            temperature=0,
+            messages=[{
+                "role": "user",
+                "content": f"""Analyze this translation:
+
+                Original: {input_text}
+                Translation: {translated_html}
+
+                Provide brief analysis focusing on:
+                1. Key terminology translations for climate science
+                2. Any challenging aspects specific to CICERO content
+                3. Suggestions for improvement"""
+            }]
+        )
+        
+        analysis = clean_text(analysis_response.content)
+        return translated_html, analysis
+        
+    except Exception as e:
+        st.error(f"Translation error: {str(e)}")
+        return None, None
 
 def main():
     st.set_page_config(page_title="CICERO Article Translator", layout="wide")

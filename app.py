@@ -126,6 +126,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
         - Adapt phrases to their closest cultural/professional equivalent
         - Preserve technical terms and proper nouns exactly
         - Maintain the original's professional tone and expertise level
+        - When translating quotes, choose to rephrase to active voice
         
         Examples of natural translation:
         - "på stedet" → "in the area" or "locally" (not "on the spot")

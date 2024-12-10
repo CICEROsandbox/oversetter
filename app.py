@@ -44,27 +44,9 @@ def fetch_cicero_article(url: str) -> str:
     except Exception as e:
         raise ValueError(f"Error fetching article: {str(e)}")
 
-def extract_translatable_content(html_content: str) -> list:
-    """Extract translatable content from HTML."""
-    soup = BeautifulSoup(html_content, 'html.parser')
-    translatable_elements = []
-    seen_text = set()
-
-    for element in soup.find_all(string=True):
-        if element.strip() and element.parent.name not in ['script', 'style']:
-            text = element.strip()
-            if text not in seen_text:
-                seen_text.add(text)
-                translatable_elements.append({
-                    'html': str(element.parent),
-                    'text': text,
-                    'element': element
-                })
-    return translatable_elements
-
-def clean_text(text) -> str:
+def clean_text(text: str) -> str:
     """Clean and normalize text."""
-    if isinstance(text, list):  # Handle list input
+    if isinstance(text, list):
         text = ' '.join([str(item) for item in text])
     elif not isinstance(text, str):
         text = str(text)
@@ -72,65 +54,117 @@ def clean_text(text) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+def clean_html_content(html_content: str) -> str:
+    """Clean HTML content by removing duplicate content and unnecessary tags."""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # Remove duplicate sections
+    seen_text = set()
+    duplicates = []
+    
+    for element in soup.find_all(string=True):
+        text = element.strip()
+        if text and text in seen_text:
+            parent = element.find_parent()
+            if parent:
+                duplicates.append(parent)
+        seen_text.add(text)
+    
+    for duplicate in duplicates:
+        duplicate.decompose()
+    
+    # Clean up empty elements
+    for element in soup.find_all():
+        if not element.get_text(strip=True) and not element.find_all('img'):
+            element.decompose()
+    
+    return str(soup)
+
+def extract_translatable_content(html_content: str) -> list:
+    """Extract translatable content while preserving structure."""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    translatable_elements = []
+    
+    for element in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'figcaption']):
+        if element.get_text(strip=True):
+            translatable_elements.append({
+                'tag': element.name,
+                'text': element.get_text(strip=True),
+                'original_element': element
+            })
+    
+    return translatable_elements
+
 def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
     """Translate and analyze content."""
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
         if preserve_html:
-            soup = BeautifulSoup(input_text, 'html.parser')
+            # Extract translatable content
+            translatable_elements = extract_translatable_content(input_text)
             
-            # Create the translation prompt with clear instructions
-            translation_prompt = f"""You are a professional translator specializing in {from_lang} to {to_lang} translation. 
-            Translate the following text accurately while preserving any names, technical terms, and proper nouns. 
-            Provide only the translation without any additional comments or explanations.
-            
-            Text to translate:
-            {clean_text(input_text)}"""
-            
-            response = client.messages.create(
-                model="claude-3-opus-20240229",
-                max_tokens=1000,
-                temperature=0,
-                system="You are a professional translator who provides accurate and natural-sounding translations.",
-                messages=[{"role": "user", "content": translation_prompt}]
-            )
-            
-            translated_text = clean_text(response.content)
-            
-            # Create HTML structure with both original and translated text
-            translated_html = f"""
-            <div class="translation-content">
-                <div class="original-text">
-                    <strong>Original ({from_lang})</strong><br>
-                    {input_text}
-                </div>
-                <div class="translated-text">
-                    <strong>Translation ({to_lang})</strong><br>
-                    {translated_text}
-                </div>
-            </div>
-            """
-        else:
-            # Handle plain text translation
-            translation_prompt = f"""Translate this {from_lang} text to {to_lang}. Preserve any names, technical terms, and proper nouns.
+            # Create translation prompt
+            translation_prompt = f"""Translate the following {from_lang} text to {to_lang}. 
+            Preserve the structure and meaning of the text while providing a natural translation.
             
             Text to translate:
             {input_text}"""
             
+            # Get translation
             response = client.messages.create(
                 model="claude-3-opus-20240229",
-                max_tokens=1000,
+                max_tokens=3000,
+                temperature=0,
+                system="You are a professional translator. Provide accurate translations while maintaining the original text's structure and meaning.",
+                messages=[{"role": "user", "content": translation_prompt}]
+            )
+            
+            # Create output HTML
+            output_html = f"""
+            <div class="translation-wrapper">
+                <div class="translation-content">
+                    <div class="original-text">
+                        <h2>Original ({from_lang})</h2>
+                        {clean_html_content(input_text)}
+                    </div>
+                    <div class="translated-text">
+                        <h2>Translation ({to_lang})</h2>
+                        {clean_html_content(response.content)}
+                    </div>
+                </div>
+            </div>
+            """
+        else:
+            # Simple text translation
+            translation_prompt = f"Translate this {from_lang} text to {to_lang}:\n\n{input_text}"
+            response = client.messages.create(
+                model="claude-3-opus-20240229",
+                max_tokens=3000,
                 temperature=0,
                 system="You are a professional translator who provides accurate and natural-sounding translations.",
                 messages=[{"role": "user", "content": translation_prompt}]
             )
-            translated_html = clean_text(response.content)
+            
+            output_html = f"""
+            <div class="translation-wrapper">
+                <div class="translation-content">
+                    <div class="original-text">
+                        <h2>Original ({from_lang})</h2>
+                        <p>{input_text}</p>
+                    </div>
+                    <div class="translated-text">
+                        <h2>Translation ({to_lang})</h2>
+                        <p>{clean_text(response.content)}</p>
+                    </div>
+                </div>
+            </div>
+            """
         
         # Analysis
-        analysis_prompt = f"""Analyze this translation for accuracy and quality:
+        analysis_prompt = f"""Analyze this translation:
         Original ({from_lang}): {input_text}
-        Translation ({to_lang}): {translated_html}
+        Translation ({to_lang}): {response.content}
         
         Provide a brief analysis of:
         1. Translation accuracy
@@ -145,15 +179,17 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
             system="You are a professional translation reviewer who provides detailed analysis of translations.",
             messages=[{"role": "user", "content": analysis_prompt}]
         )
-        analysis = clean_text(analysis_response.content)
-        return translated_html, analysis
+        
+        return output_html, clean_text(analysis_response.content)
+    
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
         return None, None
-        
+
 def main():
     st.set_page_config(page_title="CICERO Translator", layout="wide")
 
+    # Initialize session state variables
     if 'input_text' not in st.session_state:
         st.session_state.input_text = None
     if 'translation' not in st.session_state:
@@ -162,13 +198,21 @@ def main():
         st.session_state.analysis = None
 
     st.title("CICERO Article Translator 🌍")
+    
+    # Translation direction selection
     direction = st.radio("Translation Direction:", ["Norwegian → English", "English → Norwegian"])
+    
+    # Input method selection
     input_method = st.radio("Input Method:", ["Paste URL", "Paste Content"])
 
+    # Set languages based on direction
     from_lang = "Norwegian" if "Norwegian" in direction else "English"
     to_lang = "English" if "English" in direction else "Norwegian"
+    
+    # HTML structure preservation option
     preserve_html = st.checkbox("Preserve HTML structure", value=True)
 
+    # Handle input
     if input_method == "Paste URL":
         url = st.text_input("Enter CICERO Article URL")
         if url:
@@ -179,22 +223,22 @@ def main():
     else:
         st.session_state.input_text = st.text_area(f"Paste {from_lang} content here:")
 
+    # Translation button
     if st.button("Translate"):
         if st.session_state.input_text:
             with st.spinner("Translating..."):
-                translation, analysis = get_translation_and_analysis(
-                    st.session_state.input_text, from_lang, to_lang, preserve_html
+                st.session_state.translation, st.session_state.analysis = get_translation_and_analysis(
+                    st.session_state.input_text,
+                    from_lang,
+                    to_lang,
+                    preserve_html
                 )
-                st.session_state.translation = translation
-                st.session_state.analysis = analysis
 
+    # Display results
     if st.session_state.translation:
-        st.subheader(f"Original ({from_lang})")
-        st.markdown(st.session_state.input_text, unsafe_allow_html=True)
-        
-        st.subheader(f"Translation ({to_lang})")
         st.markdown(st.session_state.translation, unsafe_allow_html=True)
         
+        # Download button
         st.download_button(
             label="Download Translation",
             data=st.session_state.translation,
@@ -203,7 +247,7 @@ def main():
         )
         
         if st.session_state.analysis:
-            st.subheader("Analysis")
+            st.subheader("Translation Analysis")
             st.write(st.session_state.analysis)
 
 if __name__ == "__main__":

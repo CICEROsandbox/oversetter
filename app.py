@@ -155,7 +155,7 @@ Maintain the same structure while ensuring natural expression in {to_lang}."""
             model="claude-3-opus-20240229",
             max_tokens=3000,
             temperature=0,
-            system=f"You are a professional translator specializing in academic and scientific content. You are also an experienced science writer, used to popularizing science news. Your goal is to produce translations that read naturally in {to_lang} while preserving precise meaning. You are critical, and focus more on what does not work, than on what works.",
+            system=f"You are a professional translator specializing in academic and scientific content. You are also an experienced science writer, used to popularizing science news. Your goal is to produce translations that read naturally in {to_lang} while preserving precise meaning. You are critical, and focus more on what does not work, than on what works. You give an actionable list of concrete suggestions for improvements.",
             messages=[{"role": "user", "content": translation_prompt}]
         )
         

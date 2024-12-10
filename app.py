@@ -81,19 +81,37 @@ def clean_html_content(html_content: str) -> str:
     return str(soup)
 
 def extract_translatable_content(html_content: str) -> list:
-    """Extract translatable content while preserving structure."""
+    """Extract translatable content while preserving structure and order."""
     soup = BeautifulSoup(html_content, 'html.parser')
-    translatable_elements = []
+    content_elements = []
     
-    for element in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'figcaption']):
-        if element.get_text(strip=True):
-            translatable_elements.append({
-                'tag': element.name,
-                'text': element.get_text(strip=True),
-                'original_element': element
-            })
+    # Define the order of elements we want to extract
+    selectors = [
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        '.styles_lead',  # Lead paragraph
+        'p',
+        'figcaption',
+        '.styles_textBlock___VSu1'
+    ]
     
-    return translatable_elements
+    # Extract elements in order
+    for selector in selectors:
+        elements = soup.select(selector)
+        for element in elements:
+            if element.get_text(strip=True):
+                content_elements.append({
+                    'tag': element.name,
+                    'class': element.get('class', []),
+                    'text': element.get_text(strip=True),
+                    'original_html': str(element)
+                })
+    
+    return content_elements
 
 def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
     """Translate and analyze content."""
@@ -101,29 +119,33 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
         if preserve_html:
-            translation_prompt = f"""Translate the following {from_lang} text to {to_lang}. 
-            Preserve the structure and meaning of the text while providing a natural translation.
+            # Extract content in structured order
+            content_elements = extract_translatable_content(input_text)
             
-            Text to translate:
-            {input_text}"""
+            # Create translation prompt with structured content
+            translation_prompt = f"""Translate the following {from_lang} text to {to_lang}, maintaining the exact structure and order:
+
+{'\n\n'.join([f'[{elem["tag"]}] {elem["text"]} [/{elem["tag"]}]' for elem in content_elements])}
+
+Maintain the same order and structure in the translation."""
             
             response = client.messages.create(
                 model="claude-3-opus-20240229",
                 max_tokens=3000,
                 temperature=0,
-                system="You are a professional translator. Provide accurate translations while maintaining the original text's structure and meaning.",
+                system="You are a professional translator. Maintain the exact structure and order of the content in your translation.",
                 messages=[{"role": "user", "content": translation_prompt}]
             )
             
             translated_text = response.content[0].text if isinstance(response.content, list) else response.content
             
-            # Updated HTML with side-by-side layout and improved styling
+            # Clean and structure both original and translated content
             output_html = f"""
             <div style="display: flex; gap: 2rem; margin: 1rem 0;">
                 <div style="flex: 1;">
                     <h2 style="color: #2c3e50; margin-bottom: 1rem;">Original ({from_lang})</h2>
                     <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
-                        {clean_html_content(input_text)}
+                        {' '.join([elem['original_html'] for elem in content_elements])}
                     </div>
                 </div>
                 <div style="flex: 1;">
@@ -134,7 +156,9 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                 </div>
             </div>
             """
+
         else:
+            # Simple text translation (rest of the code remains the same)
             translation_prompt = f"Translate this {from_lang} text to {to_lang}:\n\n{input_text}"
             response = client.messages.create(
                 model="claude-3-opus-20240229",
@@ -146,7 +170,6 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
             
             translated_text = response.content[0].text if isinstance(response.content, list) else response.content
             
-            # Simple text version with side-by-side layout
             output_html = f"""
             <div style="display: flex; gap: 2rem; margin: 1rem 0;">
                 <div style="flex: 1;">
@@ -163,8 +186,8 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                 </div>
             </div>
             """
-        
-        # Updated analysis prompt focusing on technical terms and idioms
+
+        # Analysis prompt remains the same
         analysis_prompt = f"""Analyze this translation focusing specifically on:
 
         1. Technical terms: How were specific technical or domain-specific terms handled?

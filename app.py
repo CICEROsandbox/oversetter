@@ -20,15 +20,27 @@ def fetch_cicero_article(url: str) -> str:
         if title:
             article_content.append(str(title))
         
-        # Get main article content
-        main_content = soup.find_all('div', class_='styles_textBlock___VSu1')
-        if main_content:
-            seen_text = set()
-            for content in main_content:
-                text = content.get_text(strip=True)
-                if text not in seen_text:
-                    article_content.append(str(content))
-                    seen_text.add(text)
+        # Get main article content more comprehensively
+        content_areas = [
+            'div.styles_textBlock___VSu1',  # Main text blocks
+            'div.styles_articleHeader__RYxA_',  # Article header
+            'p',  # All paragraphs
+            'div.styles_contentWithLabel__tHzjJ',  # Content with labels
+            'figcaption',  # Image captions
+            'h2, h3, h4, h5, h6'  # All subheadings
+        ]
+        
+        for selector in content_areas:
+            elements = soup.select(selector)
+            for element in elements:
+                # Skip elements that are part of navigation or metadata
+                if any(skip in str(element.get('class', [])) for skip in ['breadcrumbs', 'menu', 'footer', 'caption']):
+                    continue
+                    
+                # Get text content
+                text = element.get_text(strip=True)
+                if text and not any(text in existing for existing in article_content):
+                    article_content.append(str(element))
         
         if not article_content:
             raise Exception("No article content found")
@@ -39,6 +51,44 @@ def fetch_cicero_article(url: str) -> str:
     except Exception as e:
         raise Exception(f"Error processing article: {str(e)}")
 
+def extract_translatable_content(html_content: str) -> list:
+    """Extract only the translatable content from CICERO HTML while preserving structure"""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    translatable_elements = []
+    
+    # More comprehensive content selection
+    content_selectors = [
+        'div.styles_textBlock___VSu1',
+        'h1, h2, h3, h4, h5, h6',
+        'p:not(.styles_caption__qsbpi)',
+        'figcaption',
+        'div.styles_articleHeader__RYxA_ p',
+        'div.styles_contentWithLabel__tHzjJ div',
+        'li',  # List items
+        'blockquote'  # Quoted content
+    ]
+    
+    seen_text = set()  # To avoid duplicates
+    
+    for selector in content_selectors:
+        elements = soup.select(selector)
+        for elem in elements:
+            # Skip elements that are part of navigation or metadata
+            if any(skip in str(elem.get('class', [])) for skip in ['breadcrumbs', 'menu', 'footer', 'caption']):
+                continue
+                
+            text = elem.get_text(strip=True)
+            if text and text not in seen_text:
+                seen_text.add(text)
+                translatable_elements.append({
+                    'html': str(elem),
+                    'text': text,
+                    'tag': elem.name
+                })
+    
+    return translatable_elements
+
 def clean_text(text, preserve_html: bool = False) -> str:
     """Clean text while preserving HTML if needed"""
     if isinstance(text, list):
@@ -46,17 +96,19 @@ def clean_text(text, preserve_html: bool = False) -> str:
     elif not isinstance(text, str):
         text = str(text)
     
-    # Remove TextBlock artifacts
+    # Remove various artifacts
     text = re.sub(r'TextBlock\(text=[\'"](.*?)[\'"]\)', r'\1', text)  # Remove TextBlock wrapper
     text = re.sub(r'\*\*\s*([^*]+?)\s*\*\*', r'\1', text)  # Remove markdown bold
     text = re.sub(r'<userStyle>.*?</userStyle>', '', text)  # Remove userStyle tags
+    text = re.sub(r"['\"]?,?\s*type=['\"]text['\"]", '', text)  # Remove type='text'
     text = re.sub(r'\(\s*\)', '', text)  # Remove empty parentheses
+    text = re.sub(r',\s*$', '', text)  # Remove trailing commas
+    text = re.sub(r"^'|'$", '', text)  # Remove single quotes at start/end
     
     # Fix spacing issues
-    text = re.sub(r'\n{3,}', '\n\n', text)  # Reduce multiple newlines to double
+    text = re.sub(r'\n{3,}', '\n\n', text)  # Reduce multiple newlines
     text = re.sub(r'^\s+', '', text)  # Remove leading whitespace
     text = re.sub(r'\s+$', '', text)  # Remove trailing whitespace
-    text = re.sub(r'\s*\n\s*', '\n', text)  # Clean up spaces around newlines
     
     if preserve_html:
         # Clean up whitespace while preserving HTML structure
@@ -68,56 +120,7 @@ def clean_text(text, preserve_html: bool = False) -> str:
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'\. ([A-Z])', '.\n\n\\1', text)
     
-    # Final cleanup
-    text = text.strip()
-    text = re.sub(r'\n{3,}', '\n\n', text)  # Final check for multiple newlines
-    
-    return text
-
-def extract_translatable_content(html_content: str) -> list:
-    """Extract only the translatable content from CICERO HTML while preserving structure"""
-    soup = BeautifulSoup(html_content, 'html.parser')
-    
-    translatable_elements = []
-    
-    content_selectors = [
-        'div.styles_textBlock___VSu1',
-        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-        'p:not(.styles_caption__qsbpi)',
-        'figcaption'
-    ]
-    
-    for selector in content_selectors:
-        elements = soup.select(selector)
-        for elem in elements:
-            # Clean the text before adding to translatable elements
-            clean_content = clean_text(elem.get_text(strip=True))
-            if clean_content:  # Only add if there's actual content after cleaning
-                translatable_elements.append({
-                    'html': str(elem),
-                    'text': clean_content,
-                    'tag': elem.name
-                })
-    
-    return translatable_elements
-    
-    content_selectors = [
-        'div.styles_textBlock___VSu1',
-        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-        'p:not(.styles_caption__qsbpi)',
-        'figcaption'
-    ]
-    
-    for selector in content_selectors:
-        elements = soup.select(selector)
-        for elem in elements:
-            translatable_elements.append({
-                'html': str(elem),
-                'text': elem.get_text(strip=True),
-                'tag': elem.name
-            })
-    
-    return translatable_elements
+    return text.strip()
 
 def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
     """Get translation and analysis with improved artifact handling"""

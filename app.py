@@ -4,148 +4,116 @@ import re
 from bs4 import BeautifulSoup
 import requests
 
-# [Previous functions: fetch_cicero_article, clean_text remain the same]
+# [Previous helper functions remain the same]
 
-def extract_translatable_content(html_content: str) -> dict:
-    """Extract only the translatable content from CICERO HTML while preserving structure"""
-    soup = BeautifulSoup(html_content, 'html.parser')
-    
-    translatable_elements = []
-    
-    # Get text from specific content areas
-    content_selectors = [
-        'div.styles_textBlock___VSu1',
-        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-        'p:not(.styles_caption__qsbpi)',
-        'figcaption'
-    ]
-    
-    for selector in content_selectors:
-        elements = soup.select(selector)
-        for elem in elements:
-            translatable_elements.append({
-                'html': str(elem),
-                'text': elem.get_text(strip=True),
-                'tag': elem.name
-            })
-    
-    return translatable_elements
+def main():
+    st.set_page_config(page_title="CICERO Article Translator", layout="wide")
 
-def translate_element(client, element: dict, from_lang: str, to_lang: str) -> str:
-    """Translate a single HTML element"""
-    if not element['text'].strip():
-        return element['html']
-        
-    translation_prompt = f"""Translate this content from {from_lang} to {to_lang}.
-    Important:
-    - Only translate the text content
-    - Preserve any special terminology
-    - Maintain the same tone and style
-    - For headings, keep the headline style
-    """
+    # Initialize session state
+    if 'input_text' not in st.session_state:
+        st.session_state.input_text = None
+    if 'translation' not in st.session_state:
+        st.session_state.translation = None
+    if 'analysis' not in st.session_state:
+        st.session_state.analysis = None
+
+    st.markdown('<h1 style="font-size: 2.5rem; font-weight: bold;">CICERO Article Translator 🌍</h1>', unsafe_allow_html=True)
+
+    col_controls1, col_controls2 = st.columns([1, 2])
     
-    try:
-        translation_response = client.messages.create(
-            model="claude-3-opus-20240229",
-            max_tokens=1000,
-            temperature=0,
-            messages=[{
-                "role": "user",
-                "content": f"{translation_prompt}\n\nText to translate: {element['text']}"
-            }]
+    with col_controls1:
+        direction = st.radio(
+            "Select translation direction:",
+            ["Norwegian → English", "English → Norwegian"],
+            horizontal=True,
+            label_visibility="collapsed"
         )
-        
-        translated_text = clean_text(translation_response.content)
-        return element['html'].replace(element['text'], translated_text)
-    except Exception as e:
-        st.error(f"Error translating element: {str(e)}")
-        return element['html']
 
-def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
-    """Get translation and analysis with enhanced HTML support for CICERO content"""
-    try:
-        client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-        
-        if preserve_html:
-            # Extract all translatable elements
-            translatable_elements = extract_translatable_content(input_text)
-            
-            # Show progress bar
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # Translate elements one by one
-            translated_pieces = []
-            total_elements = len(translatable_elements)
-            
-            for idx, element in enumerate(translatable_elements):
-                status_text.text(f"Translating element {idx + 1} of {total_elements}...")
-                translated_html = translate_element(client, element, from_lang, to_lang)
-                translated_pieces.append(translated_html)
-                progress_bar.progress((idx + 1) / total_elements)
-            
-            # Clear progress indicators
-            status_text.empty()
-            progress_bar.empty()
-            
-            # Combine all translated pieces
-            translated_html = '\n'.join(translated_pieces)
-            
-        else:
-            # For plain text, split into smaller chunks
-            chunks = [input_text[i:i+4000] for i in range(0, len(input_text), 4000)]
-            translated_chunks = []
-            
-            # Show progress bar
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            for idx, chunk in enumerate(chunks):
-                status_text.text(f"Translating chunk {idx + 1} of {len(chunks)}...")
-                
-                translation_response = client.messages.create(
-                    model="claude-3-opus-20240229",
-                    max_tokens=1000,
-                    temperature=0,
-                    messages=[{
-                        "role": "user",
-                        "content": f"Translate this from {from_lang} to {to_lang}:\n\n{chunk}"
-                    }]
+    with col_controls2:
+        input_method = st.radio(
+            "Choose input method:",
+            ["Paste URL", "Paste Content"],
+            horizontal=True
+        )
+
+    from_lang = "Norwegian" if direction.startswith("Norwegian") else "English"
+    to_lang = "English" if direction.startswith("Norwegian") else "Norwegian"
+
+    preserve_html = st.checkbox(
+        "Preserve HTML structure", 
+        value=True,
+        help="Keep HTML tags and structure from CICERO articles (recommended for website content)"
+    )
+
+    # Input section
+    if input_method == "Paste URL":
+        url = st.text_input(
+            "Enter CICERO article URL",
+            placeholder="https://cicero.oslo.no/no/artikler/..."
+        )
+        if url and url != st.session_state.get('last_url', ''):
+            try:
+                with st.spinner("Fetching article content..."):
+                    st.session_state.input_text = fetch_cicero_article(url)
+                    st.session_state.last_url = url
+            except Exception as e:
+                st.error(f"Error fetching article: {str(e)}")
+    else:
+        input_text = st.text_area(
+            label="Input text",
+            height=300,
+            label_visibility="collapsed",
+            key="input_area",
+            placeholder=f"Paste {from_lang} article content here..."
+        )
+        if input_text:
+            st.session_state.input_text = input_text
+
+    # Translation button and display
+    if st.button("Translate", type="primary"):
+        if st.session_state.input_text:
+            with st.spinner("Translating..."):
+                translation, analysis = get_translation_and_analysis(
+                    st.session_state.input_text, 
+                    from_lang, 
+                    to_lang, 
+                    preserve_html
                 )
-                
-                translated_chunks.append(clean_text(translation_response.content))
-                progress_bar.progress((idx + 1) / len(chunks))
-            
-            # Clear progress indicators
-            status_text.empty()
-            progress_bar.empty()
-            
-            translated_html = ' '.join(translated_chunks)
+                if translation:
+                    st.session_state.translation = translation
+                    st.session_state.analysis = analysis
+
+    # Always show content if available
+    if st.session_state.input_text and st.session_state.translation:
+        col1, col2 = st.columns(2)
         
-        # Get analysis on the complete translation
-        analysis_response = client.messages.create(
-            model="claude-3-opus-20240229",
-            max_tokens=1000,
-            temperature=0,
-            messages=[{
-                "role": "user",
-                "content": f"""Analyze this translation:
+        with col1:
+            st.subheader(f"Original ({from_lang})")
+            if preserve_html:
+                st.markdown(st.session_state.input_text, unsafe_allow_html=True)
+            else:
+                st.markdown(st.session_state.input_text)
+        
+        with col2:
+            st.subheader(f"Translation ({to_lang})")
+            if preserve_html:
+                st.markdown(st.session_state.translation, unsafe_allow_html=True)
+            else:
+                st.markdown(st.session_state.translation)
 
-                Original length: {len(input_text)} characters
-                Translated length: {len(translated_html)} characters
-
-                Provide brief analysis focusing on:
-                1. Key terminology translations for climate science
-                2. Any challenging aspects specific to CICERO content
-                3. Suggestions for improvement"""
-            }]
+        # Download button outside columns
+        st.download_button(
+            label="Download Raw HTML",
+            data=st.session_state.translation,
+            file_name="translation.html",
+            mime="text/html"
         )
         
-        analysis = clean_text(analysis_response.content)
-        return translated_html, analysis
-        
-    except Exception as e:
-        st.error(f"Translation error: {str(e)}")
-        return None, None
+        if st.session_state.analysis:
+            st.subheader("Translation Analysis")
+            st.markdown(st.session_state.analysis)
+    
+    st.caption("Created by CICERO • Powered by Claude API")
 
-# [Rest of the main() function remains the same]
+if __name__ == "__main__":
+    main()

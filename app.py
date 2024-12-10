@@ -1,6 +1,38 @@
 import streamlit as st
 from anthropic import Anthropic
 import re
+from bs4 import BeautifulSoup
+import requests
+
+def fetch_cicero_article(url: str) -> str:
+    """Fetch article content from CICERO website"""
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Extract main article content
+        article_content = []
+        
+        # Get article title
+        title = soup.find('h1')
+        if title:
+            article_content.append(str(title))
+            
+        # Get article intro
+        intro = soup.find('div', class_='styles_textBlock___VSu1')
+        if intro:
+            article_content.append(str(intro))
+            
+        # Get main article content
+        main_content = soup.find_all('div', class_='styles_textBlock___VSu1')
+        if main_content:
+            article_content.extend([str(content) for content in main_content])
+            
+        return '\n'.join(article_content)
+    except Exception as e:
+        raise Exception(f"Error fetching article: {str(e)}")
 
 def clean_text(text, preserve_html: bool = False) -> str:
     """Clean text while preserving HTML if needed"""
@@ -24,42 +56,77 @@ def clean_text(text, preserve_html: bool = False) -> str:
     
     return text.strip()
 
+def extract_translatable_content(html_content: str) -> dict:
+    """Extract only the translatable content from CICERO HTML while preserving structure"""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    translatable_elements = []
+    
+    # Get text from specific content areas
+    content_selectors = [
+        'div.styles_textBlock___VSu1',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'p:not(.styles_caption__qsbpi)',
+        'figcaption'
+    ]
+    
+    for selector in content_selectors:
+        elements = soup.select(selector)
+        for elem in elements:
+            translatable_elements.append({
+                'html': str(elem),
+                'text': elem.get_text(strip=True),
+                'tag': elem.name
+            })
+    
+    return translatable_elements
+
 def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
-    """Get translation and analysis with HTML support"""
+    """Get translation and analysis with enhanced HTML support for CICERO content"""
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
-        # Get translation
-        translation_prompt = f"""Translate this from {from_lang} to {to_lang}."""
         if preserve_html:
-            translation_prompt += """
+            translatable_elements = extract_translatable_content(input_text)
+            
+            translation_prompt = f"""Translate this content from {from_lang} to {to_lang}.
             Important:
-            - Preserve all HTML tags exactly as they appear
-            - Only translate text content between tags
-            - Keep HTML attributes unchanged
-            - Maintain HTML structure exactly
-            """
-        else:
-            translation_prompt += """
-            Important:
-            - Keep paragraph breaks as single line breaks
-            - Maintain proper sentence spacing
-            - Do not add extra spaces or newlines
+            - Only translate the text content between HTML tags
+            - Preserve all HTML tags and attributes exactly
+            - Maintain all links, references, and internal structure
+            - Keep image references and captions in their original structure
+            - Skip any structural content (menus, navigation, metadata)
+            - For headings, maintain the appropriate tone and style for headlines
             """
             
-        translation_response = client.messages.create(
-            model="claude-3-opus-20240229",
-            max_tokens=1000,
-            temperature=0,
-            messages=[{
-                "role": "user",
-                "content": f"{translation_prompt}\n\n{input_text}"
-            }]
-        )
+            translated_html = input_text
+            for element in translatable_elements:
+                if element['text'].strip():
+                    translation_response = client.messages.create(
+                        model="claude-3-opus-20240229",
+                        max_tokens=1000,
+                        temperature=0,
+                        messages=[{
+                            "role": "user",
+                            "content": f"{translation_prompt}\n\nText to translate: {element['text']}"
+                        }]
+                    )
+                    
+                    translated_text = clean_text(translation_response.content)
+                    translated_html = translated_html.replace(element['text'], translated_text)
         
-        translation = clean_text(translation_response.content, preserve_html)
+        else:
+            translation_response = client.messages.create(
+                model="claude-3-opus-20240229",
+                max_tokens=1000,
+                temperature=0,
+                messages=[{
+                    "role": "user",
+                    "content": f"Translate this from {from_lang} to {to_lang}:\n\n{input_text}"
+                }]
+            )
+            translated_html = clean_text(translation_response.content)
         
-        # Get analysis
         analysis_response = client.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
@@ -69,26 +136,26 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                 "content": f"""Analyze this translation:
 
                 Original: {input_text}
-                Translation: {translation}
+                Translation: {translated_html}
 
                 Provide brief analysis focusing on:
-                1. Key terminology translations
-                2. Any challenging aspects
+                1. Key terminology translations for climate science
+                2. Any challenging aspects specific to CICERO content
                 3. Suggestions for improvement"""
             }]
         )
         
         analysis = clean_text(analysis_response.content)
-        return translation, analysis
+        return translated_html, analysis
         
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
         return None, None
 
 def main():
-    st.set_page_config(page_title="Climate Science Translator", layout="wide")
+    st.set_page_config(page_title="CICERO Article Translator", layout="wide")
 
-    st.markdown('<h1 style="font-size: 2.5rem; font-weight: bold;">Climate Science Translator 🌍</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 style="font-size: 2.5rem; font-weight: bold;">CICERO Article Translator 🌍</h1>', unsafe_allow_html=True)
 
     direction = st.radio(
         "Select translation direction:",
@@ -100,21 +167,46 @@ def main():
     from_lang = "Norwegian" if direction.startswith("Norwegian") else "English"
     to_lang = "English" if direction.startswith("Norwegian") else "Norwegian"
 
-    # Add HTML toggle
-    preserve_html = st.checkbox("Preserve HTML tags", help="Select this if your input includes HTML tags that should be preserved")
-    
-    # Move the show_raw checkbox before translation
-    if preserve_html:
-        show_raw = st.checkbox("Show raw HTML", help="Select to see the raw HTML in the translation")
-
-    st.subheader(f"{from_lang} Text")
-    input_text = st.text_area(
-        label="Input text",
-        height=150,
-        label_visibility="collapsed",
-        key="input_area",
-        placeholder=f"Enter {from_lang} text (with or without HTML)..."
+    # Add input method selection
+    input_method = st.radio(
+        "Choose input method:",
+        ["Paste URL", "Paste Content"],
+        horizontal=True
     )
+
+    preserve_html = st.checkbox(
+        "Preserve HTML structure", 
+        value=True,
+        help="Keep HTML tags and structure from CICERO articles (recommended for website content)"
+    )
+
+    if input_method == "Paste URL":
+        url = st.text_input(
+            "Enter CICERO article URL",
+            placeholder="https://cicero.oslo.no/no/artikler/..."
+        )
+        if url:
+            try:
+                with st.spinner("Fetching article content..."):
+                    input_text = fetch_cicero_article(url)
+                st.subheader("Fetched Content")
+                if preserve_html:
+                    st.markdown(input_text, unsafe_allow_html=True)
+                else:
+                    st.text_area("Fetched content", input_text, height=200)
+            except Exception as e:
+                st.error(f"Error fetching article: {str(e)}")
+                input_text = ""
+        else:
+            input_text = ""
+    else:
+        input_text = st.text_area(
+            label="Input text",
+            height=300,
+            label_visibility="collapsed",
+            key="input_area",
+            placeholder=f"Paste {from_lang} article content here..."
+        )
 
     if st.button("Translate", type="primary"):
         if input_text:
@@ -124,25 +216,27 @@ def main():
                 if translation:
                     st.subheader(f"{to_lang} Translation")
                     
-                    if preserve_html:
-                        if show_raw:
-                            st.text_area("Raw HTML Output", translation, height=150, key="output_raw")
-                        else:
-                            st.markdown(translation, unsafe_allow_html=True)
+                    show_raw = st.checkbox("Show raw HTML", help="View the HTML code of the translation")
+                    
+                    if show_raw:
+                        st.text_area("Raw HTML Output", translation, height=300, key="output_raw")
                     else:
-                        st.text_area(
-                            label="Translation output",
-                            value=translation,
-                            height=150,
-                            label_visibility="collapsed",
-                            key="output_area"
-                        )
+                        if preserve_html:
+                            st.markdown(translation, unsafe_allow_html=True)
+                        else:
+                            st.text_area(
+                                label="Translation output",
+                                value=translation,
+                                height=300,
+                                label_visibility="collapsed",
+                                key="output_area"
+                            )
                     
                     if analysis:
                         st.subheader("Translation Analysis")
                         st.markdown(analysis)
         else:
-            st.warning("Please enter text to translate")
+            st.warning("Please enter a URL or paste content to translate")
 
     st.caption("Created by CICERO • Powered by Claude API")
 

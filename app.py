@@ -79,22 +79,21 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
         
         if preserve_html:
             soup = BeautifulSoup(input_text, 'html.parser')
-            # Create a system message explaining the translation task
-            system_message = f"""You are a professional translator specializing in {from_lang} to {to_lang} translation. 
-            Translate the following text accurately while preserving any names, technical terms, and proper nouns. 
-            Provide only the translation without any additional comments or explanations."""
             
-            # Create the translation prompt with the text to translate
-            translation_prompt = f"Translate this {from_lang} text to {to_lang}:\n\n{clean_text(input_text)}"
+            # Create the translation prompt with clear instructions
+            translation_prompt = f"""You are a professional translator specializing in {from_lang} to {to_lang} translation. 
+            Translate the following text accurately while preserving any names, technical terms, and proper nouns. 
+            Provide only the translation without any additional comments or explanations.
+            
+            Text to translate:
+            {clean_text(input_text)}"""
             
             response = client.messages.create(
                 model="claude-3-opus-20240229",
                 max_tokens=1000,
                 temperature=0,
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": translation_prompt}
-                ]
+                system="You are a professional translator who provides accurate and natural-sounding translations.",
+                messages=[{"role": "user", "content": translation_prompt}]
             )
             
             translated_text = clean_text(response.content)
@@ -114,20 +113,17 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
             """
         else:
             # Handle plain text translation
-            system_message = f"""You are a professional translator specializing in {from_lang} to {to_lang} translation. 
-            Translate the following text accurately while preserving any names, technical terms, and proper nouns. 
-            Provide only the translation without any additional comments or explanations."""
+            translation_prompt = f"""Translate this {from_lang} text to {to_lang}. Preserve any names, technical terms, and proper nouns.
             
-            translation_prompt = f"Translate this {from_lang} text to {to_lang}:\n\n{input_text}"
+            Text to translate:
+            {input_text}"""
             
             response = client.messages.create(
                 model="claude-3-opus-20240229",
                 max_tokens=1000,
                 temperature=0,
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": translation_prompt}
-                ]
+                system="You are a professional translator who provides accurate and natural-sounding translations.",
+                messages=[{"role": "user", "content": translation_prompt}]
             )
             translated_html = clean_text(response.content)
         
@@ -146,6 +142,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
+            system="You are a professional translation reviewer who provides detailed analysis of translations.",
             messages=[{"role": "user", "content": analysis_prompt}]
         )
         analysis = clean_text(analysis_response.content)

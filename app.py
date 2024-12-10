@@ -46,30 +46,60 @@ def clean_text(text, preserve_html: bool = False) -> str:
     elif not isinstance(text, str):
         text = str(text)
     
-    # More aggressive cleaning of type='text' and related artifacts
-    text = re.sub(r"['\"]?,?\s*type=['\"]text['\"]", '', text)
-    text = re.sub(r"',\s*$", '', text)  # Remove trailing comma and quote
-    text = re.sub(r"^'", '', text)      # Remove leading quote
-    text = re.sub(r',\s*$', '', text)   # Remove trailing comma
-    text = re.sub(r"'(,?\s*)$", r'\1', text)  # Remove hanging quotes
+    # Remove TextBlock artifacts
+    text = re.sub(r'TextBlock\(text=[\'"](.*?)[\'"]\)', r'\1', text)  # Remove TextBlock wrapper
+    text = re.sub(r'\*\*\s*([^*]+?)\s*\*\*', r'\1', text)  # Remove markdown bold
+    text = re.sub(r'<userStyle>.*?</userStyle>', '', text)  # Remove userStyle tags
+    text = re.sub(r'\(\s*\)', '', text)  # Remove empty parentheses
+    
+    # Fix spacing issues
+    text = re.sub(r'\n{3,}', '\n\n', text)  # Reduce multiple newlines to double
+    text = re.sub(r'^\s+', '', text)  # Remove leading whitespace
+    text = re.sub(r'\s+$', '', text)  # Remove trailing whitespace
+    text = re.sub(r'\s*\n\s*', '\n', text)  # Clean up spaces around newlines
     
     if preserve_html:
         # Clean up whitespace while preserving HTML structure
-        text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'>\s+<', '><', text)
         text = re.sub(r'>\s+([^<])', r'>\1', text)
         text = re.sub(r'([^>])\s+<', r'\1<', text)
     else:
+        # For plain text, ensure proper sentence spacing
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'\. ([A-Z])', '.\n\n\\1', text)
     
-    return text.strip()
+    # Final cleanup
+    text = text.strip()
+    text = re.sub(r'\n{3,}', '\n\n', text)  # Final check for multiple newlines
+    
+    return text
 
 def extract_translatable_content(html_content: str) -> list:
     """Extract only the translatable content from CICERO HTML while preserving structure"""
     soup = BeautifulSoup(html_content, 'html.parser')
     
     translatable_elements = []
+    
+    content_selectors = [
+        'div.styles_textBlock___VSu1',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'p:not(.styles_caption__qsbpi)',
+        'figcaption'
+    ]
+    
+    for selector in content_selectors:
+        elements = soup.select(selector)
+        for elem in elements:
+            # Clean the text before adding to translatable elements
+            clean_content = clean_text(elem.get_text(strip=True))
+            if clean_content:  # Only add if there's actual content after cleaning
+                translatable_elements.append({
+                    'html': str(elem),
+                    'text': clean_content,
+                    'tag': elem.name
+                })
+    
+    return translatable_elements
     
     content_selectors = [
         'div.styles_textBlock___VSu1',

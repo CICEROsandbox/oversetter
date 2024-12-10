@@ -62,8 +62,12 @@ def extract_translatable_content(html_content: str) -> list:
                 })
     return translatable_elements
 
-def clean_text(text: str) -> str:
+def clean_text(text) -> str:
     """Clean and normalize text."""
+    if isinstance(text, list):  # Handle list input
+        text = ' '.join([str(item) for item in text])
+    elif not isinstance(text, str):
+        text = str(text)
     text = unescape(text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
@@ -94,6 +98,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
             
             translated_html = str(soup)
         else:
+            # Handle plain text translation
             prompt = f"Translate from {from_lang} to {to_lang}:\n\n{input_text}"
             response = client.messages.create(
                 model="claude-3-opus-20240229",

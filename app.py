@@ -46,16 +46,87 @@ def clean_text(text, preserve_html: bool = False) -> str:
     elif not isinstance(text, str):
         text = str(text)
     
-    # Remove TextBlock artifacts and type='text' remnants
-    text = re.sub(r'TextBlock\(text=[\'"](.*?)[\'"]\)', r'\1', text)
-    text = re.sub(r"['\"]?,\s*type=['\"]text['\"]", '', text)
+    # More aggressive cleaning of type='text' and related artifacts
+    text = re.sub(r"['\"]?,?\s*type=['\"]text['\"]", '', text)
+    text = re.sub(r"',\s*$", '', text)  # Remove trailing comma and quote
+    text = re.sub(r"^'", '', text)      # Remove leading quote
+    text = re.sub(r',\s*$', '', text)   # Remove trailing comma
     
-    # Remove extra spaces and newlines while preserving structure
+    # Remove any hanging single quotes at end of title
+    text = re.sub(r"'(,?\s*)$", r'\1', text)
+    
     if preserve_html:
+        # Clean up whitespace while preserving HTML structure
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'>\s+<', '><', text)
         text = re.sub(r'>\s+([^<])', r'>\1', text)
         text = re.sub(r'([^>])\s+<', r'\1<', text)
+    else:
+        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r'\. ([A-Z])', '.\n\n\\1', text)
+    
+    return text.strip()
+
+def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
+    """Get translation and analysis with improved artifact handling"""
+    try:
+        client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        
+        if preserve_html:
+            translatable_elements = extract_translatable_content(input_text)
+            
+            translation_prompt = f"""Translate this content from {from_lang} to {to_lang}.
+            Important:
+            - Translate only the actual content
+            - Preserve HTML structure exactly
+            - Do not add any technical annotations or metadata
+            - Do not add phrases like 'type=text' or similar
+            - Keep heading formats but translate the text
+            - Maintain the same paragraph structure
+            For the title/heading, translate directly without adding any metadata or quotes.
+            """
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            translated_html = input_text
+            total_elements = len(translatable_elements)
+            
+            for idx, element in enumerate(translatable_elements):
+                if element['text'].strip():
+                    status_text.text(f"Translating element {idx + 1} of {total_elements}...")
+                    
+                    # Special handling for titles to prevent artifacts
+                    if element['tag'] in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                        prompt = f"{translation_prompt}\nThis is a title/heading - translate only the text without adding any metadata:"
+                    else:
+                        prompt = translation_prompt
+                    
+                    translation_response = client.messages.create(
+                        model="claude-3-opus-20240229",
+                        max_tokens=1000,
+                        temperature=0,
+                        messages=[{
+                            "role": "user",
+                            "content": f"{prompt}\n\nText to translate: {element['text']}"
+                        }]
+                    )
+                    
+                    translated_text = clean_text(translation_response.content)
+                    translated_html = translated_html.replace(element['text'], translated_text)
+                    
+                progress_bar.progress((idx + 1) / total_elements)
+            
+            status_text.empty()
+            progress_bar.empty()
+            
+            # Final cleanup pass
+            translated_html = re.sub(r"['\"]?,?\s*type=['\"]text['\"]", '', translated_html)
+            translated_html = re.sub(r"',\s*$", '', translated_html)
+            translated_html = re.sub(r"^'", '', translated_html)
+            translated_html = re.sub(r',\s*$', '', translated_html)
+            translated_html = re.sub(r'>\s+<', '><', translated_html)
+            
     else:
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'\. ([A-Z])', '.\n\n\\1', text)

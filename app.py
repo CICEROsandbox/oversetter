@@ -101,17 +101,12 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
         if preserve_html:
-            # Extract translatable content
-            translatable_elements = extract_translatable_content(input_text)
-            
-            # Create translation prompt
             translation_prompt = f"""Translate the following {from_lang} text to {to_lang}. 
             Preserve the structure and meaning of the text while providing a natural translation.
             
             Text to translate:
             {input_text}"""
             
-            # Get translation
             response = client.messages.create(
                 model="claude-3-opus-20240229",
                 max_tokens=3000,
@@ -120,26 +115,26 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                 messages=[{"role": "user", "content": translation_prompt}]
             )
             
-            # Extract the translation text from the response
             translated_text = response.content[0].text if isinstance(response.content, list) else response.content
             
-            # Create output HTML
+            # Updated HTML with side-by-side layout and improved styling
             output_html = f"""
-            <div class="translation-wrapper">
-                <div class="translation-content">
-                    <div class="original-text">
-                        <h2>Original ({from_lang})</h2>
+            <div style="display: flex; gap: 2rem; margin: 1rem 0;">
+                <div style="flex: 1;">
+                    <h2 style="color: #2c3e50; margin-bottom: 1rem;">Original ({from_lang})</h2>
+                    <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
                         {clean_html_content(input_text)}
                     </div>
-                    <div class="translated-text">
-                        <h2>Translation ({to_lang})</h2>
+                </div>
+                <div style="flex: 1;">
+                    <h2 style="color: #2c3e50; margin-bottom: 1rem;">Translation ({to_lang})</h2>
+                    <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
                         {clean_html_content(translated_text)}
                     </div>
                 </div>
             </div>
             """
         else:
-            # Simple text translation
             translation_prompt = f"Translate this {from_lang} text to {to_lang}:\n\n{input_text}"
             response = client.messages.create(
                 model="claude-3-opus-20240229",
@@ -149,44 +144,47 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                 messages=[{"role": "user", "content": translation_prompt}]
             )
             
-            # Extract the translation text from the response
             translated_text = response.content[0].text if isinstance(response.content, list) else response.content
             
+            # Simple text version with side-by-side layout
             output_html = f"""
-            <div class="translation-wrapper">
-                <div class="translation-content">
-                    <div class="original-text">
-                        <h2>Original ({from_lang})</h2>
+            <div style="display: flex; gap: 2rem; margin: 1rem 0;">
+                <div style="flex: 1;">
+                    <h2 style="color: #2c3e50; margin-bottom: 1rem;">Original ({from_lang})</h2>
+                    <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
                         <p>{input_text}</p>
                     </div>
-                    <div class="translated-text">
-                        <h2>Translation ({to_lang})</h2>
+                </div>
+                <div style="flex: 1;">
+                    <h2 style="color: #2c3e50; margin-bottom: 1rem;">Translation ({to_lang})</h2>
+                    <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
                         <p>{clean_text(translated_text)}</p>
                     </div>
                 </div>
             </div>
             """
         
-        # Analysis
-        analysis_prompt = f"""Analyze this translation:
+        # Updated analysis prompt focusing on technical terms and idioms
+        analysis_prompt = f"""Analyze this translation focusing specifically on:
+
+        1. Technical terms: How were specific technical or domain-specific terms handled?
+        2. Idioms and expressions: How were idiomatic expressions translated?
+        3. Uncertain translations: Note any terms or phrases where the translation choice is uncertain
+        4. Cultural-specific elements: How were culture-specific references handled?
+
         Original ({from_lang}): {input_text}
         Translation ({to_lang}): {translated_text}
-        
-        Provide a brief analysis of:
-        1. Translation accuracy
-        2. Preservation of meaning
-        3. Natural flow in the target language
-        4. Any notable challenges or special handling of technical terms"""
+
+        Please be explicit about any uncertainties in word choices or translations. Do not speculate about meanings you're unsure of."""
         
         analysis_response = client.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
-            system="You are a professional translation reviewer who provides detailed analysis of translations.",
+            system="You are a translation reviewer specializing in technical terminology and idiomatic expressions. Focus on specific terms and expressions rather than general translation quality.",
             messages=[{"role": "user", "content": analysis_prompt}]
         )
         
-        # Extract the analysis text from the response
         analysis_text = analysis_response.content[0].text if isinstance(analysis_response.content, list) else analysis_response.content
         
         return output_html, clean_text(analysis_text)

@@ -122,6 +122,15 @@ def main():
                     
                     # Show raw HTML or rendered version
                     show_raw = st.checkbox("Show raw HTML") if preserve_html else False
+
+        if preserve_html:
+            if show_raw:
+                st.text_area("Raw HTML Output", translation, key="output_raw")
+            else:
+                st.markdown(translation, unsafe_allow_html=True)
+        else:
+            st.write(translation)
+        
                     
                     if show_raw:
                         st.text_area(

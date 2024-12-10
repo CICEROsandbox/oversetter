@@ -182,7 +182,7 @@ Maintain the same structure while ensuring natural expression in {to_lang}."""
         # Modified analysis prompt to focus on idiomatic expressions
         analysis_prompt = f"""Analyze this translation focusing specifically on:
 
-        1. Idiomatic expressions: How were Norwegian expressions adapted to natural English?
+        1. Idiomatic expressions: How were Norwegian expressions adapted to natural English? Give alternatives if possible. 
         2. Technical terms: How were domain-specific terms handled?
         3. Structural adaptations: What changes were made to make the text flow naturally?
         4. Uncertain translations: Note any terms or phrases where a different choice might be considered

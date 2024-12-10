@@ -119,7 +119,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
         # Enhanced translation prompt for more natural language
-        translation_instructions = f"""You are translating a popular science article from {from_lang} to {to_lang}. 
+        translation_instructions = f"""You are an experienced science writer translating a popular science article from {from_lang} to {to_lang}. Your audience is the general public.
         Key translation guidelines:
         - Prioritize natural, idiomatic expression in {to_lang}
         - Avoid word-for-word translations
@@ -155,7 +155,7 @@ Maintain the same structure while ensuring natural expression in {to_lang}."""
             model="claude-3-opus-20240229",
             max_tokens=3000,
             temperature=0,
-            system=f"You are a professional translator specializing in academic and scientific content. Your goal is to produce translations that read naturally in {to_lang} while preserving precise meaning.",
+            system=f"You are a professional translator specializing in academic and scientific content. You are also an experienced science writer, used to popularizing science news. Your goal is to produce translations that read naturally in {to_lang} while preserving precise meaning. You are critical, and focus more on what does not work, than on what works.",
             messages=[{"role": "user", "content": translation_prompt}]
         )
         

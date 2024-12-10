@@ -56,36 +56,26 @@ def extract_translatable_content(html_content: str) -> list:
     soup = BeautifulSoup(html_content, 'html.parser')
     
     translatable_elements = []
+    seen_text = set()  # Track unique text content
     
-    # More comprehensive content selection
-    content_selectors = [
-        'div.styles_textBlock___VSu1',
-        'h1, h2, h3, h4, h5, h6',
-        'p:not(.styles_caption__qsbpi)',
-        'figcaption',
-        'div.styles_articleHeader__RYxA_ p',
-        'div.styles_contentWithLabel__tHzjJ div',
-        'li',  # List items
-        'blockquote'  # Quoted content
-    ]
-    
-    seen_text = set()  # To avoid duplicates
-    
-    for selector in content_selectors:
-        elements = soup.select(selector)
-        for elem in elements:
-            # Skip elements that are part of navigation or metadata
-            if any(skip in str(elem.get('class', [])) for skip in ['breadcrumbs', 'menu', 'footer', 'caption']):
+    # Get all text nodes that aren't empty
+    for element in soup.find_all(string=True):
+        if element.strip():  # Only process non-empty text
+            # Skip if in a script or style tag
+            if element.parent.name in ['script', 'style']:
                 continue
                 
-            text = elem.get_text(strip=True)
-            if text and text not in seen_text:
-                seen_text.add(text)
-                translatable_elements.append({
-                    'html': str(elem),
-                    'text': text,
-                    'tag': elem.name
-                })
+            # Skip if already seen this text
+            if element.strip() in seen_text:
+                continue
+                
+            seen_text.add(element.strip())
+            translatable_elements.append({
+                'html': str(element.parent) if element.parent else str(element),
+                'text': element.strip(),
+                'tag': element.parent.name if element.parent else None,
+                'element': element  # Keep reference to original element
+            })
     
     return translatable_elements
 
@@ -114,34 +104,30 @@ def clean_text(text, preserve_html: bool = False) -> str:
     return text
 
 def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
-    """Get translation and analysis with improved handling"""
+    """Get translation and analysis with improved text handling"""
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
         if preserve_html:
+            soup = BeautifulSoup(input_text, 'html.parser')
             translatable_elements = extract_translatable_content(input_text)
             
-            translation_prompt = f"""Translate this content from {from_lang} to {to_lang}.
+            translation_prompt = f"""Translate this text from {from_lang} to {to_lang}.
             Important rules:
-            1. Translate ALL text content - don't skip anything
-            2. Keep HTML tags exactly as they are
-            3. Don't add any formatting marks or technical annotations
-            4. Don't add any metadata like 'type=text'
-            5. Remove any "Here is the translation..." prefixes
-            6. Don't add any extra quotes or asterisks
-            7. Keep the same paragraph structure
-            8. If you see text in quotes, translate the text but keep the quotes
-            
-            For example:
-            Input: <p>"Dette er en test"</p>
-            Correct: <p>"This is a test"</p>
-            Wrong: <p>type='text' "This is a test"</p>
+            1. Translate ONLY the text provided, nothing else
+            2. Don't add any formatting or metadata
+            3. Don't include phrases like 'here is the translation'
+            4. Don't add any quotes unless they're in the original
+            5. Keep proper nouns unchanged (names, places)
+            6. Maintain any numbers exactly as they appear
+            7. Return ONLY the translated text
             """
             
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            translated_html = input_text
+            # Create a map of original text to translated text
+            translations = {}
             total_elements = len(translatable_elements)
             
             for idx, element in enumerate(translatable_elements):
@@ -154,33 +140,38 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                         temperature=0,
                         messages=[{
                             "role": "user",
-                            "content": f"{translation_prompt}\n\nText to translate: {element['text']}"
+                            "content": f"{translation_prompt}\n\nText: {element['text']}"
                         }]
                     )
                     
                     translated_text = clean_text(translation_response.content)
-                    translated_html = translated_html.replace(element['text'], translated_text)
+                    translations[element['text']] = translated_text
                     
                 progress_bar.progress((idx + 1) / total_elements)
+            
+            # Replace all occurrences of original text with translations
+            for element in translatable_elements:
+                if element['text'] in translations:
+                    # Create a new string object for the translation
+                    new_string = soup.new_string(translations[element['text']])
+                    # Replace the original string with the translation
+                    if element['element'].parent:
+                        element['element'].replace_with(new_string)
             
             status_text.empty()
             progress_bar.empty()
             
-            # Final cleanup
-            translated_html = clean_text(translated_html, preserve_html=True)
+            translated_html = str(soup)
             
         else:
+            # Handle plain text translation
             translation_response = client.messages.create(
                 model="claude-3-opus-20240229",
                 max_tokens=1000,
                 temperature=0,
                 messages=[{
                     "role": "user",
-                    "content": f"""Translate this from {from_lang} to {to_lang}.
-                    Important: Translate ALL text and keep any quotation marks around quoted text.
-                    Do not add any metadata or formatting.
-                    
-                    Text to translate: {input_text}"""
+                    "content": f"{translation_prompt}\n\nText: {input_text}"
                 }]
             )
             
@@ -193,11 +184,15 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
             temperature=0,
             messages=[{
                 "role": "user",
-                "content": f"""Analyze this translation:
+                "content": f"""Analyze this translation pair:
+
+                Original: {input_text}
+                Translation: {translated_html}
+
                 Provide brief analysis focusing on:
-                1. Key terminology translations for climate science
-                2. Any challenging aspects specific to CICERO content
-                3. Suggestions for improvement"""
+                1. Accuracy of climate science terminology translation
+                2. Preservation of meaning and context
+                3. Any suggested improvements"""
             }]
         )
         
@@ -207,6 +202,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
         return None, None
+        
 def main():
     st.set_page_config(page_title="CICERO Article Translator", layout="wide")
 

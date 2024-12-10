@@ -142,11 +142,12 @@ def extract_translatable_content(html_content: str) -> list:
             progress_bar.empty()
             
             # Final cleanup pass
-            translated_html = re.sub(r"['\"]?,?\s*type=['\"]text['\"]", '', translated_html)
-            translated_html = re.sub(r"',\s*$", '', translated_html)
-            translated_html = re.sub(r"^'", '', translated_html)
-            translated_html = re.sub(r',\s*$", '', translated_html)
-            translated_html = re.sub(r'>\s+<', '><', translated_html)
+# Final cleanup pass
+translated_html = re.sub(r"['\"]?,?\s*type=['\"]text['\"]", '', translated_html)
+translated_html = re.sub(r"',\s*$", '', translated_html)
+translated_html = re.sub(r"^'", '', translated_html)
+translated_html = re.sub(r',\s*$', '', translated_html)  # Fixed this line
+translated_html = re.sub(r'>\s+<', '><', translated_html)
             
         else:
             translation_response = client.messages.create(

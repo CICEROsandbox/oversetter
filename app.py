@@ -119,7 +119,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
         # Enhanced translation prompt for more natural language
-        translation_instructions = f"""You are translating a professional article from {from_lang} to {to_lang}. 
+        translation_instructions = f"""You are translating a popular science article from {from_lang} to {to_lang}. 
         Key translation guidelines:
         - Prioritize natural, idiomatic expression in {to_lang}
         - Avoid word-for-word translations

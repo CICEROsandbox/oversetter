@@ -180,29 +180,58 @@ Maintain the same structure while ensuring natural expression in {to_lang}."""
         """
 
         # Modified analysis prompt to focus on idiomatic expressions
-        analysis_prompt = f"""Analyze this translation focusing specifically on:
+        analysis_prompt = f"""Analyze this translation and provide a structured report with the following sections:
 
-        1. Idiomatic expressions: How were Norwegian expressions adapted to natural English? Give alternatives if possible. 
-        2. Technical terms: How were domain-specific terms handled?
-        3. Structural adaptations: What changes were made to make the text flow naturally?
-        4. Uncertain translations: Note any terms or phrases where a different choice might be considered
+        # Translation Analysis
+
+        ## Idiomatic Expressions
+        - Identify Norwegian expressions and how they were adapted to English
+        - Suggest alternative translations where appropriate
+        - Note any expressions that could be more natural
+
+        ## Technical Terms
+        - List important technical/domain-specific terms
+        - Evaluate their translations
+        - Suggest improvements if needed
+
+        ## Structural Changes
+        - Note significant structural adaptations
+        - Identify where sentence structure could be improved
+        - Highlight any awkward phrasings
+
+        ## Suggestions for Improvement
+        Provide a numbered list of specific, actionable suggestions for improving the translation.
 
         Original ({from_lang}): {input_text}
         Translation ({to_lang}): {translated_text}
 
-        Focus on specific phrases and their adaptations. Note any particularly successful or challenging translations."""
+        Focus on concrete improvements rather than general observations."""
         
         analysis_response = client.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
-            system="You are a translation reviewer specializing in natural language adaptation. Focus on how effectively idiomatic expressions were translated. You are critical, and focus more on what does not work, than on what works. You give an actionable list of concrete suggestions for improvements.",
+            system="""You are a translation reviewer specializing in natural language adaptation. 
+            Be critical and constructive, focusing on specific improvements needed.
+            Format your response in Markdown with clear headings and bullet points.
+            Make your suggestions actionable and specific.
+            Use examples where possible.""",
             messages=[{"role": "user", "content": analysis_prompt}]
         )
         
         analysis_text = analysis_response.content[0].text if isinstance(analysis_response.content, list) else analysis_response.content
         
-        return output_html, clean_text(analysis_text)
+        # Create styled HTML for analysis
+        analysis_html = f"""
+        <div style="background: #f8f9fa; padding: 2rem; border-radius: 4px; margin-top: 2rem;">
+            <h2 style="color: #2c3e50; margin-bottom: 1.5rem;">Translation Analysis</h2>
+            <div style="margin-left: 1rem;">
+                {analysis_text}
+            </div>
+        </div>
+        """
+
+        return output_html, analysis_html
     
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
@@ -255,8 +284,7 @@ def main():
                     preserve_html
                 )
 
-    # Display results
-    if st.session_state.translation:
+    # Display results if st.session_state.translation:
         st.markdown(st.session_state.translation, unsafe_allow_html=True)
         
         # Download button
@@ -268,8 +296,8 @@ def main():
         )
         
         if st.session_state.analysis:
-            st.subheader("Translation Analysis")
-            st.write(st.session_state.analysis)
+            # Display formatted analysis
+            st.markdown(st.session_state.analysis, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()

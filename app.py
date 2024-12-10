@@ -155,7 +155,7 @@ Maintain the same structure while ensuring natural expression in {to_lang}."""
             model="claude-3-opus-20240229",
             max_tokens=3000,
             temperature=0,
-            system=f"You are a professional translator specializing in academic and scientific content. You are also an experienced science writer, used to popularizing science news. Your goal is to produce translations that read naturally in {to_lang} while preserving precise meaning. You are critical, and focus more on what does not work, than on what works. You give an actionable list of concrete suggestions for improvements.",
+            system=f"You are a professional translator specializing in academic and scientific content. You prefer active voice to passive. You are also an experienced science writer, used to popularizing science news. Your goal is to produce translations that read naturally in {to_lang} while preserving precise meaning.",
             messages=[{"role": "user", "content": translation_prompt}]
         )
         
@@ -196,7 +196,7 @@ Maintain the same structure while ensuring natural expression in {to_lang}."""
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
-            system="You are a translation reviewer specializing in natural language adaptation. Focus on how effectively idiomatic expressions were translated.",
+            system="You are a translation reviewer specializing in natural language adaptation. Focus on how effectively idiomatic expressions were translated. You are critical, and focus more on what does not work, than on what works. You give an actionable list of concrete suggestions for improvements.",
             messages=[{"role": "user", "content": analysis_prompt}]
         )
         

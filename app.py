@@ -88,7 +88,8 @@ def extract_translatable_content(html_content: str) -> list:
             })
     
     return translatable_elements
-    def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
+    
+def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
     """Get translation and analysis with improved artifact handling"""
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
@@ -142,12 +143,11 @@ def extract_translatable_content(html_content: str) -> list:
             progress_bar.empty()
             
             # Final cleanup pass
-# Final cleanup pass
-translated_html = re.sub(r"['\"]?,?\s*type=['\"]text['\"]", '', translated_html)
-translated_html = re.sub(r"',\s*$", '', translated_html)
-translated_html = re.sub(r"^'", '', translated_html)
-translated_html = re.sub(r',\s*$', '', translated_html)  # Fixed this line
-translated_html = re.sub(r'>\s+<', '><', translated_html)
+            translated_html = re.sub(r"['\"]?,?\s*type=['\"]text['\"]", '', translated_html)
+            translated_html = re.sub(r"',\s*$", '', translated_html)
+            translated_html = re.sub(r"^'", '', translated_html)
+            translated_html = re.sub(r',\s*$', '', translated_html)
+            translated_html = re.sub(r'>\s+<', '><', translated_html)
             
         else:
             translation_response = client.messages.create(
@@ -183,7 +183,7 @@ translated_html = re.sub(r'>\s+<', '><', translated_html)
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
         return None, None
-
+        
             def main():
     st.set_page_config(page_title="CICERO Article Translator", layout="wide")
 

@@ -120,6 +120,9 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                 messages=[{"role": "user", "content": translation_prompt}]
             )
             
+            # Extract the translation text from the response
+            translated_text = response.content[0].text if isinstance(response.content, list) else response.content
+            
             # Create output HTML
             output_html = f"""
             <div class="translation-wrapper">
@@ -130,7 +133,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                     </div>
                     <div class="translated-text">
                         <h2>Translation ({to_lang})</h2>
-                        {clean_html_content(response.content)}
+                        {clean_html_content(translated_text)}
                     </div>
                 </div>
             </div>
@@ -146,6 +149,9 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                 messages=[{"role": "user", "content": translation_prompt}]
             )
             
+            # Extract the translation text from the response
+            translated_text = response.content[0].text if isinstance(response.content, list) else response.content
+            
             output_html = f"""
             <div class="translation-wrapper">
                 <div class="translation-content">
@@ -155,7 +161,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
                     </div>
                     <div class="translated-text">
                         <h2>Translation ({to_lang})</h2>
-                        <p>{clean_text(response.content)}</p>
+                        <p>{clean_text(translated_text)}</p>
                     </div>
                 </div>
             </div>
@@ -164,7 +170,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
         # Analysis
         analysis_prompt = f"""Analyze this translation:
         Original ({from_lang}): {input_text}
-        Translation ({to_lang}): {response.content}
+        Translation ({to_lang}): {translated_text}
         
         Provide a brief analysis of:
         1. Translation accuracy
@@ -180,12 +186,15 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
             messages=[{"role": "user", "content": analysis_prompt}]
         )
         
-        return output_html, clean_text(analysis_response.content)
+        # Extract the analysis text from the response
+        analysis_text = analysis_response.content[0].text if isinstance(analysis_response.content, list) else analysis_response.content
+        
+        return output_html, clean_text(analysis_text)
     
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
         return None, None
-
+        
 def main():
     st.set_page_config(page_title="CICERO Translator", layout="wide")
 

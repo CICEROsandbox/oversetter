@@ -118,93 +118,84 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
+        # Enhanced translation prompt for more natural language
+        translation_instructions = f"""You are translating a professional article from {from_lang} to {to_lang}. 
+        Key translation guidelines:
+        - Prioritize natural, idiomatic expression in {to_lang}
+        - Avoid word-for-word translations
+        - Adapt phrases to their closest cultural/professional equivalent
+        - Preserve technical terms and proper nouns exactly
+        - Maintain the original's professional tone and expertise level
+        
+        Examples of natural translation:
+        - "på stedet" → "in the area" or "locally" (not "on the spot")
+        - "slår hun fast" → "she emphasizes" or "she points out" (not "she states firmly")
+        - "kommer til" → "arrives" or "reaches" (context dependent)
+        
+        Translate the following text using these principles:"""
+        
         if preserve_html:
             # Extract content in structured order
             content_elements = extract_translatable_content(input_text)
             
             # Create translation prompt with structured content
-            translation_prompt = f"""Translate the following {from_lang} text to {to_lang}, maintaining the exact structure and order:
+            translation_prompt = f"""{translation_instructions}
 
 {'\n\n'.join([f'[{elem["tag"]}] {elem["text"]} [/{elem["tag"]}]' for elem in content_elements])}
 
-Maintain the same order and structure in the translation."""
+Maintain the same structure while ensuring natural expression in {to_lang}."""
             
-            response = client.messages.create(
-                model="claude-3-opus-20240229",
-                max_tokens=3000,
-                temperature=0,
-                system="You are a professional translator. Maintain the exact structure and order of the content in your translation.",
-                messages=[{"role": "user", "content": translation_prompt}]
-            )
-            
-            translated_text = response.content[0].text if isinstance(response.content, list) else response.content
-            
-            # Clean and structure both original and translated content
-            output_html = f"""
-            <div style="display: flex; gap: 2rem; margin: 1rem 0;">
-                <div style="flex: 1;">
-                    <h2 style="color: #2c3e50; margin-bottom: 1rem;">Original ({from_lang})</h2>
-                    <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
-                        {' '.join([elem['original_html'] for elem in content_elements])}
-                    </div>
-                </div>
-                <div style="flex: 1;">
-                    <h2 style="color: #2c3e50; margin-bottom: 1rem;">Translation ({to_lang})</h2>
-                    <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
-                        {clean_html_content(translated_text)}
-                    </div>
-                </div>
-            </div>
-            """
-
         else:
-            # Simple text translation (rest of the code remains the same)
-            translation_prompt = f"Translate this {from_lang} text to {to_lang}:\n\n{input_text}"
-            response = client.messages.create(
-                model="claude-3-opus-20240229",
-                max_tokens=3000,
-                temperature=0,
-                system="You are a professional translator who provides accurate and natural-sounding translations.",
-                messages=[{"role": "user", "content": translation_prompt}]
-            )
-            
-            translated_text = response.content[0].text if isinstance(response.content, list) else response.content
-            
-            output_html = f"""
-            <div style="display: flex; gap: 2rem; margin: 1rem 0;">
-                <div style="flex: 1;">
-                    <h2 style="color: #2c3e50; margin-bottom: 1rem;">Original ({from_lang})</h2>
-                    <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
-                        <p>{input_text}</p>
-                    </div>
-                </div>
-                <div style="flex: 1;">
-                    <h2 style="color: #2c3e50; margin-bottom: 1rem;">Translation ({to_lang})</h2>
-                    <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
-                        <p>{clean_text(translated_text)}</p>
-                    </div>
+            translation_prompt = f"""{translation_instructions}
+
+{input_text}"""
+        
+        response = client.messages.create(
+            model="claude-3-opus-20240229",
+            max_tokens=3000,
+            temperature=0,
+            system=f"You are a professional translator specializing in academic and scientific content. Your goal is to produce translations that read naturally in {to_lang} while preserving precise meaning.",
+            messages=[{"role": "user", "content": translation_prompt}]
+        )
+        
+        translated_text = response.content[0].text if isinstance(response.content, list) else response.content
+        
+        # Create the HTML output (rest of the code remains the same)
+        output_html = f"""
+        <div style="display: flex; gap: 2rem; margin: 1rem 0;">
+            <div style="flex: 1;">
+                <h2 style="color: #2c3e50; margin-bottom: 1rem;">Original ({from_lang})</h2>
+                <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
+                    {clean_html_content(input_text)}
                 </div>
             </div>
-            """
+            <div style="flex: 1;">
+                <h2 style="color: #2c3e50; margin-bottom: 1rem;">Translation ({to_lang})</h2>
+                <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
+                    {clean_html_content(translated_text)}
+                </div>
+            </div>
+        </div>
+        """
 
-        # Analysis prompt remains the same
+        # Modified analysis prompt to focus on idiomatic expressions
         analysis_prompt = f"""Analyze this translation focusing specifically on:
 
-        1. Technical terms: How were specific technical or domain-specific terms handled?
-        2. Idioms and expressions: How were idiomatic expressions translated?
-        3. Uncertain translations: Note any terms or phrases where the translation choice is uncertain
-        4. Cultural-specific elements: How were culture-specific references handled?
+        1. Idiomatic expressions: How were Norwegian expressions adapted to natural English?
+        2. Technical terms: How were domain-specific terms handled?
+        3. Structural adaptations: What changes were made to make the text flow naturally?
+        4. Uncertain translations: Note any terms or phrases where a different choice might be considered
 
         Original ({from_lang}): {input_text}
         Translation ({to_lang}): {translated_text}
 
-        Please be explicit about any uncertainties in word choices or translations. Do not speculate about meanings you're unsure of."""
+        Focus on specific phrases and their adaptations. Note any particularly successful or challenging translations."""
         
         analysis_response = client.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
             temperature=0,
-            system="You are a translation reviewer specializing in technical terminology and idiomatic expressions. Focus on specific terms and expressions rather than general translation quality.",
+            system="You are a translation reviewer specializing in natural language adaptation. Focus on how effectively idiomatic expressions were translated.",
             messages=[{"role": "user", "content": analysis_prompt}]
         )
         
@@ -214,8 +205,7 @@ Maintain the same order and structure in the translation."""
     
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
-        return None, None
-        
+        return None, None        
 def main():
     st.set_page_config(page_title="CICERO Translator", layout="wide")
 

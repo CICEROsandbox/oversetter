@@ -79,37 +79,69 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
         
         if preserve_html:
             soup = BeautifulSoup(input_text, 'html.parser')
-            translatable_elements = extract_translatable_content(input_text)
+            # Create a system message explaining the translation task
+            system_message = f"""You are a professional translator specializing in {from_lang} to {to_lang} translation. 
+            Translate the following text accurately while preserving any names, technical terms, and proper nouns. 
+            Provide only the translation without any additional comments or explanations."""
             
-            translations = {}
-            for element in translatable_elements:
-                prompt = f"Translate from {from_lang} to {to_lang}:\n\n{element['text']}"
-                response = client.messages.create(
-                    model="claude-3-opus-20240229",
-                    max_tokens=1000,
-                    temperature=0,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                translations[element['text']] = clean_text(response.content)
+            # Create the translation prompt with the text to translate
+            translation_prompt = f"Translate this {from_lang} text to {to_lang}:\n\n{clean_text(input_text)}"
             
-            for element in translatable_elements:
-                if element['text'] in translations:
-                    element['element'].replace_with(soup.new_string(translations[element['text']]))
-            
-            translated_html = str(soup)
-        else:
-            # Handle plain text translation
-            prompt = f"Translate from {from_lang} to {to_lang}:\n\n{input_text}"
             response = client.messages.create(
                 model="claude-3-opus-20240229",
                 max_tokens=1000,
                 temperature=0,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": translation_prompt}
+                ]
+            )
+            
+            translated_text = clean_text(response.content)
+            
+            # Create HTML structure with both original and translated text
+            translated_html = f"""
+            <div class="translation-content">
+                <div class="original-text">
+                    <strong>Original ({from_lang})</strong><br>
+                    {input_text}
+                </div>
+                <div class="translated-text">
+                    <strong>Translation ({to_lang})</strong><br>
+                    {translated_text}
+                </div>
+            </div>
+            """
+        else:
+            # Handle plain text translation
+            system_message = f"""You are a professional translator specializing in {from_lang} to {to_lang} translation. 
+            Translate the following text accurately while preserving any names, technical terms, and proper nouns. 
+            Provide only the translation without any additional comments or explanations."""
+            
+            translation_prompt = f"Translate this {from_lang} text to {to_lang}:\n\n{input_text}"
+            
+            response = client.messages.create(
+                model="claude-3-opus-20240229",
+                max_tokens=1000,
+                temperature=0,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": translation_prompt}
+                ]
             )
             translated_html = clean_text(response.content)
         
         # Analysis
-        analysis_prompt = f"Analyze this translation:\nOriginal: {input_text}\nTranslation: {translated_html}"
+        analysis_prompt = f"""Analyze this translation for accuracy and quality:
+        Original ({from_lang}): {input_text}
+        Translation ({to_lang}): {translated_html}
+        
+        Provide a brief analysis of:
+        1. Translation accuracy
+        2. Preservation of meaning
+        3. Natural flow in the target language
+        4. Any notable challenges or special handling of technical terms"""
+        
         analysis_response = client.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=1000,
@@ -121,7 +153,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
         return None, None
-
+        
 def main():
     st.set_page_config(page_title="CICERO Translator", layout="wide")
 

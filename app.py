@@ -1,9 +1,23 @@
 import streamlit as st
 from anthropic import Anthropic
-import re
 from bs4 import BeautifulSoup
 import requests
 from html import unescape
+import re
+from typing import Dict, List, Tuple, Optional
+
+# Constants and Configuration
+CLIMATE_TERMS = {
+    "klimaendringer": "climate change",
+    "utslipp": "emissions",
+    "klimagasser": "greenhouse gases",
+    "havnivåstigning": "sea level rise",
+    "klimatiltak": "climate measures",
+    "klimatilpasning": "climate adaptation",
+    "karbonfangst": "carbon capture",
+    "fornybar energi": "renewable energy",
+    # Add more CICERO-specific terms as needed
+}
 
 def fetch_cicero_article(url: str) -> str:
     """Fetch article content from CICERO website."""
@@ -44,203 +58,227 @@ def fetch_cicero_article(url: str) -> str:
     except Exception as e:
         raise ValueError(f"Error fetching article: {str(e)}")
 
-def clean_text(text: str) -> str:
-    """Clean and normalize text."""
-    if isinstance(text, list):
-        text = ' '.join([str(item) for item in text])
-    elif not isinstance(text, str):
-        text = str(text)
-    text = unescape(text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-def clean_html_content(html_content: str) -> str:
-    """Clean HTML content by removing duplicate content and unnecessary tags."""
+def chunk_content(html_content: str, max_chunk_size: int = 1000) -> List[str]:
+    """Split content into logical chunks while preserving structure."""
     soup = BeautifulSoup(html_content, 'html.parser')
+    chunks = []
+    current_chunk = []
+    current_size = 0
     
-    # Remove duplicate sections
-    seen_text = set()
-    duplicates = []
+    for element in soup.find_all(['h1', 'h2', 'h3', 'p', 'figcaption']):
+        element_text = element.get_text(strip=True)
+        if not element_text:
+            continue
+            
+        # Start new chunk on headers or when chunk gets too large
+        if (element.name.startswith('h') and current_chunk) or current_size > max_chunk_size:
+            chunks.append('\n'.join(current_chunk))
+            current_chunk = []
+            current_size = 0
+            
+        current_chunk.append(str(element))
+        current_size += len(element_text)
     
-    for element in soup.find_all(string=True):
-        text = element.strip()
-        if text and text in seen_text:
-            parent = element.find_parent()
-            if parent:
-                duplicates.append(parent)
-        seen_text.add(text)
+    if current_chunk:
+        chunks.append('\n'.join(current_chunk))
     
-    for duplicate in duplicates:
-        duplicate.decompose()
-    
-    # Clean up empty elements
-    for element in soup.find_all():
-        if not element.get_text(strip=True) and not element.find_all('img'):
-            element.decompose()
-    
-    return str(soup)
+    return chunks
 
-def extract_translatable_content(html_content: str) -> list:
-    """Extract translatable content while preserving structure and order."""
-    soup = BeautifulSoup(html_content, 'html.parser')
-    content_elements = []
+def validate_translation_quality(original: str, translated: str) -> Dict[str, bool]:
+    """Check translation quality metrics."""
+    def check_numbers_match(orig: str, trans: str) -> bool:
+        orig_numbers = re.findall(r'\d+(?:\.\d+)?', orig)
+        trans_numbers = re.findall(r'\d+(?:\.\d+)?', trans)
+        return len(orig_numbers) == len(trans_numbers)
     
-    # Define the order of elements we want to extract
-    selectors = [
-        'h1',
-        'h2',
-        'h3',
-        'h4',
-        'h5',
-        'h6',
-        '.styles_lead',  # Lead paragraph
-        'p',
-        'figcaption',
-        '.styles_textBlock___VSu1'
-    ]
+    def check_terminology(trans: str, terms: Dict[str, str]) -> bool:
+        for eng_term in terms.values():
+            if eng_term.lower() in trans.lower():
+                return True
+        return True  # Return True if no terms found (might be chunk without terms)
     
-    # Extract elements in order
-    for selector in selectors:
-        elements = soup.select(selector)
-        for element in elements:
-            if element.get_text(strip=True):
-                content_elements.append({
-                    'tag': element.name,
-                    'class': element.get('class', []),
-                    'text': element.get_text(strip=True),
-                    'original_html': str(element)
-                })
+    def check_units_preserved(orig: str, trans: str) -> bool:
+        unit_pattern = r'\d+\s*(?:km|m|cm|kg|°C|%)'
+        orig_units = re.findall(unit_pattern, orig)
+        trans_units = re.findall(unit_pattern, trans)
+        return len(orig_units) == len(trans_units)
     
-    return content_elements
+    return {
+        'numbers_preserved': check_numbers_match(original, translated),
+        'terms_consistent': check_terminology(translated, CLIMATE_TERMS),
+        'scientific_units': check_units_preserved(original, translated),
+        'length_reasonable': 0.8 <= len(translated)/len(original) <= 1.2
+    }
 
-def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, preserve_html: bool = False):
-    """Translate and analyze content."""
+def create_translation_prompt(chunk: str, from_lang: str, to_lang: str, 
+                            previous_chunk: Optional[str] = None, 
+                            next_chunk: Optional[str] = None) -> str:
+    """Create enhanced translation prompt with context."""
+    context = f"""You are an experienced climate science translator working with CICERO content.
+    
+    Context:
+    Previous content: {previous_chunk if previous_chunk else 'Start of article'}
+    Following content: {next_chunk if next_chunk else 'End of article'}
+    
+    Required terminology translations:
+    {CLIMATE_TERMS}
+    
+    Translation guidelines:
+    - Maintain precise scientific language and technical terms
+    - Use active voice where appropriate
+    - Preserve uncertainty qualifiers exactly (likely, very likely, etc.)
+    - Keep measurements and units consistent
+    - Ensure technical terms are translated consistently
+    - Adapt Norwegian expressions to natural {to_lang}
+    - Preserve citations and references exactly
+    
+    Please translate the following {from_lang} text to {to_lang}:
+    
+    {chunk}
+    """
+    return context
+
+def translate_chunk(chunk: str, from_lang: str, to_lang: str, 
+                   previous_chunk: Optional[str] = None, 
+                   next_chunk: Optional[str] = None) -> str:
+    """Translate a single chunk while maintaining context."""
     try:
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         
-        # Enhanced translation prompt for more natural language
-        translation_instructions = f"""You are an experienced science writer translating a popular science article from {from_lang} to {to_lang}. Your audience is the general public.
-        Key translation guidelines:
-        - Prioritize natural, idiomatic expression in {to_lang}
-        - Avoid word-for-word translations
-        - Adapt phrases to their closest cultural/professional equivalent
-        - Preserve technical terms and proper nouns exactly
-        - Maintain the original's professional tone and expertise level
-        - When translating quotes, choose to rephrase to active voice
-        - Do not move the lead to the beginning, if the original has the lead at the bottom of the text. 
-        
-        Examples of natural translation:
-        - "på stedet" → "in the area" or "locally" (not "on the spot")
-        - "slår hun fast" → "she emphasizes" or "she points out" (not "she states firmly")
-        - "kommer til" → "arrives" or "reaches" (context dependent)
-        
-        Translate the following text using these principles:"""
-        
-        if preserve_html:
-            # Extract content in structured order
-            content_elements = extract_translatable_content(input_text)
-            
-            # Create translation prompt with structured content
-            translation_prompt = f"""{translation_instructions}
-
-{'\n\n'.join([f'[{elem["tag"]}] {elem["text"]} [/{elem["tag"]}]' for elem in content_elements])}
-
-Maintain the same structure while ensuring natural expression in {to_lang}."""
-            
-        else:
-            translation_prompt = f"""{translation_instructions}
-
-{input_text}"""
+        prompt = create_translation_prompt(chunk, from_lang, to_lang, 
+                                        previous_chunk, next_chunk)
         
         response = client.messages.create(
             model="claude-3-opus-20240229",
             max_tokens=3000,
             temperature=0,
-            system=f"You are a professional translator specializing in academic and scientific content. You prefer active voice to passive. You are also an experienced science writer, used to popularizing science news. Your goal is to produce translations that read naturally in {to_lang} while preserving precise meaning.",
-            messages=[{"role": "user", "content": translation_prompt}]
+            system=f"You are a professional translator specializing in climate science and academic content. Your goal is to produce translations that read naturally in {to_lang} while preserving precise scientific meaning.",
+            messages=[{"role": "user", "content": prompt}]
         )
         
-        translated_text = response.content[0].text if isinstance(response.content, list) else response.content
+        translated_text = response.content[0].text
         
-        # Create the HTML output (rest of the code remains the same)
+        # Validate translation quality
+        quality = validate_translation_quality(chunk, translated_text)
+        if not all(quality.values()):
+            st.warning(f"Quality check issues detected: {quality}")
+        
+        return translated_text
+    
+    except Exception as e:
+        st.error(f"Translation error in chunk: {str(e)}")
+        return chunk  # Return original chunk if translation fails
+
+def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str) -> Tuple[str, str]:
+    """Translate and analyze content in chunks."""
+    try:
+        # Split content into chunks
+        chunks = chunk_content(input_text)
+        translated_chunks = []
+        
+        # Progress bar
+        progress_bar = st.progress(0)
+        
+        # Translate each chunk
+        for i, chunk in enumerate(chunks):
+            prev_chunk = chunks[i-1] if i > 0 else None
+            next_chunk = chunks[i+1] if i < len(chunks)-1 else None
+            
+            translated_chunk = translate_chunk(chunk, from_lang, to_lang, 
+                                            prev_chunk, next_chunk)
+            translated_chunks.append(translated_chunk)
+            
+            # Update progress
+            progress_bar.progress((i + 1) / len(chunks))
+        
+        # Combine translated chunks
+        complete_translation = '\n'.join(translated_chunks)
+        
+        # Create the HTML output
         output_html = f"""
         <div style="display: flex; gap: 2rem; margin: 1rem 0;">
             <div style="flex: 1;">
                 <h2 style="color: #2c3e50; margin-bottom: 1rem;">Original ({from_lang})</h2>
                 <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
-                    {clean_html_content(input_text)}
+                    {input_text}
                 </div>
             </div>
             <div style="flex: 1;">
                 <h2 style="color: #2c3e50; margin-bottom: 1rem;">Translation ({to_lang})</h2>
                 <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px;">
-                    {clean_html_content(translated_text)}
+                    {complete_translation}
                 </div>
             </div>
         </div>
         """
-
-        # Modified analysis prompt to focus on idiomatic expressions
-        analysis_prompt = f"""Analyze this translation and provide a structured report with the following sections:
-
-        # Translation Analysis
-
-        ## Idiomatic Expressions
-        - Identify Norwegian expressions and how they were adapted to English
-        - Suggest alternative translations where appropriate
-        - Note any expressions that could be more natural
-
-        ## Technical Terms
-        - List important technical/domain-specific terms
-        - Evaluate their translations
-        - Suggest improvements if needed
-
-        ## Structural Changes
-        - Note significant structural adaptations
-        - Identify where sentence structure could be improved
-        - Highlight any awkward phrasings
-
-        ## Suggestions for Improvement
-        Provide a numbered list of specific, actionable suggestions for improving the translation.
-
-        Original ({from_lang}): {input_text}
-        Translation ({to_lang}): {translated_text}
-
-        Focus on concrete improvements rather than general observations."""
         
-        analysis_response = client.messages.create(
-            model="claude-3-opus-20240229",
-            max_tokens=1000,
-            temperature=0,
-            system="""You are a translation reviewer specializing in natural language adaptation. 
-            Be critical and constructive, focusing on specific improvements needed.
-            Format your response in Markdown with clear headings and bullet points.
-            Make your suggestions actionable and specific.
-            Use examples where possible.""",
-            messages=[{"role": "user", "content": analysis_prompt}]
-        )
+        # Generate analysis
+        analysis_response = get_translation_analysis(input_text, complete_translation, 
+                                                  from_lang, to_lang)
         
-        analysis_text = analysis_response.content[0].text if isinstance(analysis_response.content, list) else analysis_response.content
-        
-        # Create styled HTML for analysis
         analysis_html = f"""
         <div style="background: #f8f9fa; padding: 2rem; border-radius: 4px; margin-top: 2rem;">
             <h2 style="color: #2c3e50; margin-bottom: 1.5rem;">Translation Analysis</h2>
             <div style="margin-left: 1rem;">
-                {analysis_text}
+                {analysis_response}
             </div>
         </div>
         """
-
+        
         return output_html, analysis_html
     
     except Exception as e:
         st.error(f"Translation error: {str(e)}")
-        return None, None        
+        return None, None
+
+def get_translation_analysis(original: str, translation: str, 
+                           from_lang: str, to_lang: str) -> str:
+    """Generate analysis of the translation."""
+    try:
+        client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        
+        analysis_prompt = f"""Analyze this climate science translation and provide a structured report:
+
+        # Translation Analysis
+
+        ## Technical Accuracy
+        - Evaluate preservation of scientific terms and concepts
+        - Check consistency of measurements and units
+        - Assess handling of uncertainty language
+
+        ## Language Adaptation
+        - Identify how Norwegian expressions were adapted to English
+        - Note any areas where phrasing could be more natural
+        - Evaluate active vs passive voice usage
+
+        ## Suggestions for Improvement
+        Provide specific, actionable suggestions for improving the translation.
+
+        Original ({from_lang}):
+        {original}
+
+        Translation ({to_lang}):
+        {translation}
+        """
+        
+        response = client.messages.create(
+            model="claude-3-opus-20240229",
+            max_tokens=1000,
+            temperature=0,
+            system="You are a translation reviewer specializing in climate science communication.",
+            messages=[{"role": "user", "content": analysis_prompt}]
+        )
+        
+        return response.content[0].text
+    
+    except Exception as e:
+        st.error(f"Analysis error: {str(e)}")
+        return "Analysis unavailable"
+
 def main():
     st.set_page_config(page_title="CICERO Translator", layout="wide")
 
-    # Initialize session state variables
+    # Initialize session state
     if 'input_text' not in st.session_state:
         st.session_state.input_text = None
     if 'translation' not in st.session_state:
@@ -260,9 +298,6 @@ def main():
     from_lang = "Norwegian" if "Norwegian" in direction else "English"
     to_lang = "English" if "English" in direction else "Norwegian"
     
-    # HTML structure preservation option
-    preserve_html = st.checkbox("Preserve HTML structure", value=True)
-
     # Handle input
     if input_method == "Paste URL":
         url = st.text_input("Enter CICERO Article URL")
@@ -281,11 +316,11 @@ def main():
                 st.session_state.translation, st.session_state.analysis = get_translation_and_analysis(
                     st.session_state.input_text,
                     from_lang,
-                    to_lang,
-                    preserve_html
+                    to_lang
                 )
 
-    # Display results if st.session_state.translation:
+    # Display results
+    if st.session_state.translation:
         st.markdown(st.session_state.translation, unsafe_allow_html=True)
         
         # Download button
@@ -297,7 +332,6 @@ def main():
         )
         
         if st.session_state.analysis:
-            # Display formatted analysis
             st.markdown(st.session_state.analysis, unsafe_allow_html=True)
 
 if __name__ == "__main__":

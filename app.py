@@ -127,6 +127,7 @@ def get_translation_and_analysis(input_text: str, from_lang: str, to_lang: str, 
         - Preserve technical terms and proper nouns exactly
         - Maintain the original's professional tone and expertise level
         - When translating quotes, choose to rephrase to active voice
+        - Do not move the lead to the beginning, if the original has the lead at the bottom of the text. 
         
         Examples of natural translation:
         - "på stedet" → "in the area" or "locally" (not "on the spot")
